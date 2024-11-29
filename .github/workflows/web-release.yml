@@ -20,7 +20,7 @@ jobs:
           distribution: 'temurin'
           java-version: "21"
           cache: gradle
-      - uses: subosito/flutter-action@v4
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.0.0"
           channel: 'beta'
@@ -33,7 +33,7 @@ jobs:
         run: flutter build web --release
      
       - name: Upload Web Build Files
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: web-release
           path: ./build/web
