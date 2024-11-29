@@ -34,7 +34,7 @@ jobs:
         run: flutter pub get
 
       - name: Start Web Release Build
-        run: flutter build web --release
+        run: flutter build web --release --wasm --base-href /RiseTogether/
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
