@@ -8,9 +8,9 @@ class Paddle extends BodyComponent {
   final Vector2 _impulseOriginLeft;
   final Vector2 _impulseOriginRight;
   final int participants = 1;
-
   double pressedLeft = 0;
   double pressedRight = 0;
+  Vector2 pos = Vector2.zero();
 
   Paddle(this._start, this._end)
       : _w = (_end.x - _start.x) / 2,
@@ -24,44 +24,39 @@ class Paddle extends BodyComponent {
 
     final fixtureDef = FixtureDef(shape, friction: 1.0, density: 10.0);
     final bodyDef = BodyDef(
-      type: BodyType.dynamic,
+      type: BodyType.kinematic,
       position: Vector2(camera.visibleWorldRect.center.dx, _start.y),
       gravityOverride: Vector2(0, 0),
     );
-
+    pos = bodyDef.position;
     return world.createBody(bodyDef)..createFixture(fixtureDef);
   }
 
   @override
   void update(double dt) {
+    // body.fixtures.first.shape.computeAABB(, body.transform, 0);
+    // final aabb = body.fixtures.first.getAABB(0);
+    // aabb.extents
     if (pressedLeft + pressedRight < 1) {
       return;
     }
-    if (pressedLeft > 0) {
-      // apply a linear impulse under the paddles bottom left corner of the paddle
-      // based on the paddle's current location
-      if (body.angle < 1.3) {
-        body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedLeft),
-            point: _impulseOriginLeft + Vector2(0, body.worldCenter.y));
-      } else {
-        body.angularVelocity = 0.0;
-        body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedLeft));
-      }
+
+    // final center = pos +
+    //     Vector2(
+    //         _w *
+    //             (1 / participants * pressedLeft -
+    //                 1 / participants * pressedRight),
+    //         0);
+    // body.setTransform(center, body.angle);
+    if (pressedLeft >= 1) {
+      // lift up the left side of the paddle by pressedLeft * 5 degrees / second
+      body.angularVelocity = pressedLeft * 15 * dt;
+      body.linearVelocity = Vector2(0, -10 * 1 / participants * pressedLeft);
     }
-    if (pressedRight > 0) {
-      // apply a linear impulse under the paddles bottom right corner of the paddle
-      // based on the paddle's current location
-      if (body.angle > -1.3) {
-        body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedRight),
-            point: _impulseOriginRight + Vector2(0, body.worldCenter.y));
-      } else {
-        body.angularVelocity = 0.0;
-        body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedRight));
-      }
+    if (pressedRight >= 1) {
+      // lift up the right side of the paddle by pressedRight * 5 degrees / second
+      body.angularVelocity = -pressedRight * 15 * dt;
+      body.linearVelocity = Vector2(0, -10 * 1 / participants * pressedRight);
     }
   }
 
@@ -73,7 +68,6 @@ class Paddle extends BodyComponent {
     // pressedLeft--;
     // temp
     pressedLeft = 0;
-    body.clearForces();
     body.linearVelocity = Vector2.zero();
     body.angularVelocity = 0.0;
   }
@@ -86,7 +80,6 @@ class Paddle extends BodyComponent {
     // pressedRight--;
     // temp
     pressedRight = 0;
-    body.clearForces();
     body.linearVelocity = Vector2.zero();
     body.angularVelocity = 0.0;
   }

@@ -55,6 +55,17 @@ class RiseTogetherGame extends Forge2DGame with TapDetector, PanDetector {
   }
 
   @override
+  void onPanStart(DragStartInfo info) {
+    final visibleRect = camera.visibleWorldRect;
+
+    if (screenToWorld(info.eventPosition.global).x < visibleRect.topCenter.dx) {
+      paddle.pressLeft();
+    } else {
+      paddle.pressRight();
+    }
+  }
+
+  @override
   void onPanEnd(DragEndInfo info) {
     paddle.releaseLeft();
     paddle.releaseRight();
