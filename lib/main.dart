@@ -25,8 +25,10 @@ class RiseTogetherGame extends Forge2DGame with TapDetector, PanDetector {
         pos: Vector2(visibleRect.center.dx, visibleRect.center.dy));
     // ball.anchor = Anchor.center;
     paddle = Paddle(
-      visibleRect.bottomLeft.toVector2() + Vector2(10, -10),
-      visibleRect.bottomRight.toVector2() + Vector2(-10, -9),
+      Vector2(visibleRect.center.dx - 10 * Config.ballRadius,
+          visibleRect.bottomLeft.dy - 10),
+      Vector2(visibleRect.center.dx + 10 * Config.ballRadius,
+          visibleRect.bottomLeft.dy - 9),
     );
     world.add(ball);
     world.add(paddle);

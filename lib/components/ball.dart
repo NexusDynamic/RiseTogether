@@ -24,7 +24,7 @@ class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
       CircleShape()..radius = radius,
       restitution: 0.2,
       density: 1.0,
-      friction: 0,
+      friction: 1.0,
     );
 
     final sprite = Sprite(game.images.fromCache('ball.png'));
