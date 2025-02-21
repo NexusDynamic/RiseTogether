@@ -1,5 +1,6 @@
 import 'package:flame/components.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
+import 'package:rise_together/components/target.dart';
 import 'package:rise_together/main.dart';
 
 class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
@@ -68,5 +69,10 @@ class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
 
   void stopMoving() {
     isMoving = false;
+  }
+
+  @override
+  void beginContact(Object other, Contact contact) {
+    if (other is Target) {}
   }
 }
