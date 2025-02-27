@@ -11,6 +11,9 @@ import 'config.dart';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart' hide Route;
 import 'package:logging/logging.dart';
+//import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 // Log singleton
 class Log {
@@ -21,7 +24,7 @@ class Log {
 
 // https://docs.flame-engine.org/latest/flame/collision_detection.html
 // might be worth considering if the two panels require individual collision detection
-class RiseTogetherGame extends Forge2DGame {
+class RiseTogetherGame extends Forge2DGame with SingleGameInstance {
   late final RouterComponent router;
 
   @override
@@ -42,11 +45,25 @@ class RiseTogetherGame extends Forge2DGame {
   RiseTogetherGame() : super(gravity: Vector2(0, 15.0));
 }
 
+class App extends StatelessWidget {
+  const App({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      localizationsDelegates: context.localizationDelegates,
+      supportedLocales: context.supportedLocales,
+      locale: context.locale,
+      home: GameWidget(game: RiseTogetherGame()),
+    );
+  }
+}
+
 class MenuPage extends Component with HasGameReference<RiseTogetherGame> {
   MenuPage() {
     addAll([
       _logo = TextComponent(
-        text: 'Your Game',
+        text: 'TITLE'.tr(),
         textRenderer: TextPaint(
           style: const TextStyle(
             fontSize: 64,
@@ -145,52 +162,88 @@ class RoundedButton extends PositionComponent with TapCallbacks {
 
 class LevelPage extends DecoratedWorld
     with HasGameRef<RiseTogetherGame>, TapCallbacks, DragCallbacks {
-  late Ball ball;
-  late Paddle paddle;
-  late Target target;
   late final RouterComponent router;
+  late Rect visibleRect;
+  late Vector2 ballPos;
+  late Vector2 paddlePos1;
+  late Vector2 paddlePos2;
+  late Vector2 targetPos;
+  Paddle? paddle;
 
   @override
   void onLoad() async {
     await game.loadSprite('ball.png');
-    final visibleRect = game.camera.visibleWorldRect;
+    visibleRect = game.camera.visibleWorldRect;
     game.camera.viewport.add(FpsTextComponent(position: Vector2(15, 10)));
-    ball = Ball(
+    ballPos = Vector2(visibleRect.center.dx, visibleRect.center.dy);
+    paddlePos1 = Vector2(visibleRect.center.dx - 10 * Config.ballRadius,
+        visibleRect.bottomLeft.dy - 10);
+    paddlePos2 = Vector2(visibleRect.center.dx + 10 * Config.ballRadius,
+        visibleRect.bottomLeft.dy - 9);
+    targetPos = Vector2(-10, 30);
+    super.onLoad();
+  }
+
+  @override
+  void onMount() {
+    gameOver = false;
+    Ball ball = Ball(
         radius: Config.ballRadius,
         paint: Paint()..color = const Color(0xFFFF0000),
-        pos: Vector2(visibleRect.center.dx, visibleRect.center.dy));
+        pos: ballPos);
     // ball.anchor = Anchor.center;
-    paddle = Paddle(
-      Vector2(visibleRect.center.dx - 10 * Config.ballRadius,
-          visibleRect.bottomLeft.dy - 10),
-      Vector2(visibleRect.center.dx + 10 * Config.ballRadius,
-          visibleRect.bottomLeft.dy - 9),
-    );
-    target = Target(Config.ballRadius * 3, Vector2(0, 0),
-        paint: Paint()..color = const Color(0xFFFF0000));
 
+    paddle = Paddle(
+      paddlePos1,
+      paddlePos2,
+    );
+
+    Target target = Target(Config.ballRadius * 3, targetPos,
+        paint: Paint()..color = const Color(0xFFFF0000));
+    List<Component> walls = createBoundaries();
     addAll([
       ball,
-      paddle,
+      paddle!,
       target,
-      ...createBoundaries(),
+      ...walls,
     ]);
+    super.onMount();
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    if (gameOver) {
+      if (children.isEmpty) {
+        game.router.pop();
+        return;
+      }
+      removeAll(children);
+      return;
+    }
+  }
+
+  @override
+  void onRemove() {
+    // Optional based on your game needs.
+    Log.log.fine('LevelPage onRemove');
+    super.onRemove();
   }
 
   @override
   void onTapDown(TapDownEvent event) {
     final visibleRect = game.camera.visibleWorldRect;
     if (game.screenToWorld(event.canvasPosition).x < visibleRect.topCenter.dx) {
-      paddle.pressLeft();
+      paddle!.pressLeft();
     } else {
-      paddle.pressRight();
+      paddle!.pressRight();
     }
   }
 
   @override
   void onTapUp(TapUpEvent event) {
-    paddle.releaseLeft();
-    paddle.releaseRight();
+    paddle!.releaseLeft();
+    paddle!.releaseRight();
   }
 
   @override
@@ -199,24 +252,24 @@ class LevelPage extends DecoratedWorld
     final visibleRect = game.camera.visibleWorldRect;
 
     if (game.screenToWorld(event.canvasPosition).x < visibleRect.topCenter.dx) {
-      paddle.pressLeft();
+      paddle!.pressLeft();
     } else {
-      paddle.pressRight();
+      paddle!.pressRight();
     }
   }
 
   @override
   void onDragEnd(DragEndEvent event) {
     super.onDragEnd(event);
-    paddle.releaseLeft();
-    paddle.releaseRight();
+    paddle!.releaseLeft();
+    paddle!.releaseRight();
   }
 
   @override
   void onDragCancel(DragCancelEvent event) {
     super.onDragCancel(event);
-    paddle.releaseLeft();
-    paddle.releaseRight();
+    paddle!.releaseLeft();
+    paddle!.releaseRight();
   }
 
   List<Component> createBoundaries() {
@@ -225,18 +278,19 @@ class LevelPage extends DecoratedWorld
     final Vector2 topRight = visibleRect.topRight.toVector2();
     final Vector2 bottomRight = visibleRect.bottomRight.toVector2();
     final Vector2 bottomLeft = visibleRect.bottomLeft.toVector2();
-
+    final Paint paint = Paint()..color = const Color.fromARGB(255, 255, 0, 0);
     return [
-      Wall(topLeft, topRight),
-      Wall(topRight, bottomRight),
-      Wall(bottomLeft, bottomRight),
-      Wall(topLeft, bottomLeft),
+      Wall(topLeft, topRight, paint: paint),
+      Wall(topRight, bottomRight, paint: paint),
+      Wall(bottomLeft, bottomRight, paint: paint),
+      Wall(topLeft, bottomLeft, paint: paint),
     ];
   }
 }
 
 class DecoratedWorld extends Forge2DWorld with HasTimeScale {
   PaintDecorator? decorator;
+  bool gameOver = false;
 
   @override
   void renderFromCamera(Canvas canvas) {
@@ -248,12 +302,25 @@ class DecoratedWorld extends Forge2DWorld with HasTimeScale {
   }
 }
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
+  await FullScreen.ensureInitialized();
+  FullScreen.setFullScreen(true);
   Logger.root.level = Level.ALL; // defaults to Level.INFO
   Logger.root.onRecord.listen((record) {
     // ignore: avoid_print
     print('${record.level.name}: ${record.time}: ${record.message}');
   });
-  runApp(GameWidget(game: RiseTogetherGame()));
+  runApp(
+    EasyLocalization(
+      supportedLocales: [Locale('en'), Locale('da')],
+      path: 'assets/translations',
+      fallbackLocale: Locale('en'),
+      startLocale: Locale('da'),
+      useOnlyLangCode: true,
+      // child: GameWidget(game: RiseTogetherGame()),
+      child: App(),
+    ),
+  );
 }

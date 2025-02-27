@@ -1,6 +1,7 @@
 import 'package:flame/components.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:rise_together/components/target.dart';
+import 'package:rise_together/components/wall.dart';
 import 'package:rise_together/main.dart';
 
 class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
@@ -73,6 +74,13 @@ class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
 
   @override
   void beginContact(Object other, Contact contact) {
-    if (other is Target) {}
+    Log.log.fine('Ball beginContact');
+    if (other is Target || other is Wall) {
+      Forge2DWorld world = game.world;
+      // check if world is subclass of DecoratedWorld
+      if (world is DecoratedWorld) {
+        world.gameOver = true;
+      }
+    }
   }
 }

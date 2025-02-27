@@ -1,11 +1,12 @@
+import 'package:rise_together/main.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 
-class Wall extends BodyComponent {
+class Wall extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
   final Vector2 _start;
   final Vector2 _end;
   final bool isFatal;
 
-  Wall(this._start, this._end, {this.isFatal = false});
+  Wall(this._start, this._end, {this.isFatal = true, super.paint});
 
   @override
   Body createBody() {

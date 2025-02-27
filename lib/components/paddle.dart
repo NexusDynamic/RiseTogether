@@ -1,6 +1,7 @@
+import 'package:rise_together/main.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 
-class Paddle extends BodyComponent {
+class Paddle extends BodyComponent<RiseTogetherGame> {
   final Vector2 _start;
   final Vector2 _end;
   final double _w;
