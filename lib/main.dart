@@ -11,6 +11,8 @@ import 'config.dart';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart' hide Route;
 import 'package:logging/logging.dart';
+import 'package:liblsl/lsl.dart';
+import 'dart:async';
 //import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
@@ -22,6 +24,12 @@ class Log {
   static Logger get log => _log;
 }
 
+// LSL singleton
+class DataStream extends LSL {
+  static final DataStream instance = DataStream._();
+  DataStream._() : super();
+}
+
 // https://docs.flame-engine.org/latest/flame/collision_detection.html
 // might be worth considering if the two panels require individual collision detection
 class RiseTogetherGame extends Forge2DGame with SingleGameInstance {
@@ -30,6 +38,19 @@ class RiseTogetherGame extends Forge2DGame with SingleGameInstance {
   @override
   void onLoad() async {
     await super.onLoad();
+    // Initialize the LSL library
+    await DataStream.instance.createStreamInfo(
+      streamName: 'RiseTogether',
+      streamType: LSLContentType.markers,
+      channelFormat: LSLChannelFormat.int8,
+      channelCount: 1,
+      sampleRate: 60, // should be ~refreshRate
+      sourceId: 'someClientID',
+    );
+    await DataStream.instance.createOutlet(
+      chunkSize: 0,
+      maxBuffer: 1,
+    );
     Log.log.fine('RiseTogetherGame loaded');
     await add(
       router = RouterComponent(
@@ -168,10 +189,12 @@ class LevelPage extends DecoratedWorld
   late Vector2 paddlePos1;
   late Vector2 paddlePos2;
   late Vector2 targetPos;
+  late Timer timer;
   Paddle? paddle;
 
   @override
   void onLoad() async {
+    timer = Timer(1 / 60, onTick: pushSample, repeat: true);
     await game.loadSprite('ball.png');
     visibleRect = game.camera.visibleWorldRect;
     game.camera.viewport.add(FpsTextComponent(position: Vector2(15, 10)));
@@ -182,6 +205,14 @@ class LevelPage extends DecoratedWorld
         visibleRect.bottomLeft.dy - 9);
     targetPos = Vector2(-10, 30);
     super.onLoad();
+  }
+
+  void pushSample() {
+    // push a sample to the stream
+    Log.log.fine('LevelPage pushSample');
+    DataStream.instance.outlet!.pushSample([
+      paddle!.pressedRight - paddle!.pressedLeft,
+    ]);
   }
 
   @override

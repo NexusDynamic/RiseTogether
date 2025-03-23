@@ -33,6 +33,7 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
+  liblsl: ^0.2.1
   cupertino_icons: ^1.0.8
   flame_forge2d: ^0.18.2+6
   # flame_forge2d:
