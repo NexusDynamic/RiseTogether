@@ -1,18 +1,26 @@
+import 'dart:isolate';
+
 import 'package:flame/extensions.dart';
 import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flame/rendering.dart';
 import 'package:flame_forge2d/flame_forge2d.dart' hide Vector2;
+import 'package:flutter/services.dart';
 import 'components/ball.dart';
 import 'components/wall.dart';
 import 'components/paddle.dart';
 import 'components/target.dart';
 import 'config.dart';
-import 'package:flame/components.dart';
+import 'package:flame/components.dart' hide Timer;
 import 'package:flutter/material.dart' hide Route;
 import 'package:logging/logging.dart';
 import 'package:liblsl/lsl.dart';
+// ignore: implementation_imports @TODO: export this in the library
+import 'package:liblsl/src/lsl/isolated_outlet.dart' show LSLIsolatedOutlet;
+// ignore: implementation_imports @TODO: export this in the library
+import 'package:liblsl/src/lsl/isolated_inlet.dart' show LSLIsolatedInlet;
 import 'dart:async';
+import 'dart:math';
 //import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
@@ -24,33 +32,53 @@ class Log {
   static Logger get log => _log;
 }
 
-// LSL singleton
-class DataStream extends LSL {
-  static final DataStream instance = DataStream._();
-  DataStream._() : super();
+class Util {
+  static String getRandomString(int length) {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    Random random = Random();
+    return List.generate(length, (index) => chars[random.nextInt(chars.length)])
+        .join();
+  }
 }
 
 // https://docs.flame-engine.org/latest/flame/collision_detection.html
 // might be worth considering if the two panels require individual collision detection
-class RiseTogetherGame extends Forge2DGame with SingleGameInstance {
+class RiseTogetherGame extends Forge2DGame
+    with SingleGameInstance, HasKeyboardHandlerComponents {
   late final RouterComponent router;
+  String participantId = Util.getRandomString(10);
+  late LSLIsolatedOutlet outlet;
+  late LSLStreamInfo streamInfo;
+  LSLIsolatedInlet? inlet;
+
+  Future<void> pushDiscovery() async {
+    // Push a discovery sample to the outlet
+    Isolate.run(() async {
+      int sampleCount = 0;
+      while (sampleCount < 100) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        outlet.pushSample([9]);
+        sampleCount++;
+      }
+      Log.log.fine('Pushed discovery sample to outlet');
+    });
+  }
 
   @override
   void onLoad() async {
     await super.onLoad();
     // Initialize the LSL library
-    await DataStream.instance.createStreamInfo(
-      streamName: 'RiseTogether',
+    streamInfo = await LSL.createStreamInfo(
+      streamName: 'TapEvents',
       streamType: LSLContentType.markers,
       channelFormat: LSLChannelFormat.int8,
       channelCount: 1,
-      sampleRate: 60, // should be ~refreshRate
-      sourceId: 'someClientID',
+      sampleRate: LSL_IRREGULAR_RATE,
+      sourceId: 'client-$participantId',
     );
-    await DataStream.instance.createOutlet(
-      chunkSize: 0,
-      maxBuffer: 1,
-    );
+    outlet = await LSL.createOutlet(streamInfo: streamInfo);
+    // Push a discovery sample to the outlet
+    await pushDiscovery();
     Log.log.fine('RiseTogetherGame loaded');
     await add(
       router = RouterComponent(
@@ -61,6 +89,16 @@ class RiseTogetherGame extends Forge2DGame with SingleGameInstance {
         initialRoute: 'home',
       ),
     );
+  }
+
+  @override
+  void onDispose() {
+    // Dispose of the LSL outlet (@note: not called on Hot Reload/Restart)
+    outlet.destroy();
+    inlet?.destroy();
+    streamInfo.destroy();
+    Log.log.fine('RiseTogetherGame disposed');
+    super.onDispose();
   }
 
   RiseTogetherGame() : super(gravity: Vector2(0, 15.0));
@@ -80,7 +118,10 @@ class App extends StatelessWidget {
   }
 }
 
-class MenuPage extends Component with HasGameReference<RiseTogetherGame> {
+class MenuPage extends Component
+    with HasGameReference<RiseTogetherGame>, KeyboardHandler {
+  String streamInfoText = 'Stream info';
+
   MenuPage() {
     addAll([
       _logo = TextComponent(
@@ -90,6 +131,16 @@ class MenuPage extends Component with HasGameReference<RiseTogetherGame> {
             fontSize: 64,
             color: Color(0xFFC8FFF5),
             fontWeight: FontWeight.w800,
+          ),
+        ),
+        anchor: Anchor.center,
+      ),
+      _participantId = TextComponent(
+        text: game.participantId,
+        textRenderer: TextPaint(
+          style: const TextStyle(
+            fontSize: 20,
+            color: Color(0xFFC8FFF5),
           ),
         ),
         anchor: Anchor.center,
@@ -104,17 +155,76 @@ class MenuPage extends Component with HasGameReference<RiseTogetherGame> {
         color: const Color(0xffadde6c),
         borderColor: const Color(0xffedffab),
       ),
+      _button2 = RoundedButton(
+        text: 'Find streams',
+        action: () async {
+          // log the action
+          Log.log.fine('MenuPage, find streams button pressed');
+          // find streams
+          final List<LSLStreamInfo> streams =
+              await LSL.resolveStreams(waitTime: 5.0, maxStreams: 10);
+          if (streams.isNotEmpty) {
+            // update the stream info text with each stream name
+            Log.log.fine('Found streams: ${streams.length}');
+            for (final stream in streams) {
+              Log.log.fine('Found stream: ${stream.streamName}');
+              if (stream.hostname != 'localhost') {
+                game.inlet = await LSL.createInlet(streamInfo: stream);
+              }
+            }
+            streamInfoText =
+                'Found streams:\n${streams.map((stream) => '${stream.streamName} (${stream.sourceId}: ${stream.hostname})').join('\n')}';
+            _streamInfo.text = streamInfoText;
+          }
+        },
+        color: const Color(0xffadde6c),
+        borderColor: const Color(0xffedffab),
+      ),
+      // stream info text
+      _streamInfo = TextComponent(
+        text: streamInfoText,
+        textRenderer: TextPaint(
+          style: const TextStyle(
+            fontSize: 20,
+            color: Color(0xFFC8FFF5),
+          ),
+        ),
+        anchor: Anchor.center,
+      ),
     ]);
   }
 
+  @override
+  bool onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
+    // put typing in the text field
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.backspace &&
+          _participantId.text.isNotEmpty) {
+        _participantId.text =
+            _participantId.text.substring(0, _participantId.text.length - 1);
+      } else {
+        _participantId.text += event.logicalKey.keyLabel;
+      }
+      game.participantId = _participantId.text;
+      return true;
+    }
+    return false;
+  }
+
   late final TextComponent _logo;
+  late final TextComponent _participantId;
   late final RoundedButton _button1;
+  late final RoundedButton _button2;
+  late final TextComponent _streamInfo;
 
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
     _logo.position = Vector2(size.x / 2, size.y / 3);
     _button1.position = Vector2(size.x / 2, _logo.y + 80);
+    _button2.position = Vector2(size.x / 2, _button1.y + 80);
+    _participantId.position = Vector2(size.x / 2, _button2.y + 80);
+    _streamInfo.position = Vector2(size.x / 2, _participantId.y + 80);
   }
 }
 
@@ -189,15 +299,43 @@ class LevelPage extends DecoratedWorld
   late Vector2 paddlePos1;
   late Vector2 paddlePos2;
   late Vector2 targetPos;
-  late Timer timer;
+  Timer? timer;
   Paddle? paddle;
+  late TextComponent _inputStream;
+  late TextComponent _outputStream;
 
   @override
   void onLoad() async {
-    timer = Timer(1 / 60, onTick: pushSample, repeat: true);
     await game.loadSprite('ball.png');
     visibleRect = game.camera.visibleWorldRect;
     game.camera.viewport.add(FpsTextComponent(position: Vector2(15, 10)));
+    // add input textcomponent
+    _inputStream = TextComponent(
+      text: 'Input stream',
+      textRenderer: TextPaint(
+        style: const TextStyle(
+          fontSize: 20,
+          color: Color(0xFFC8FFF5),
+        ),
+      ),
+      anchor: Anchor.topLeft,
+    );
+    _inputStream.position = Vector2(game.camera.viewport.size.x / 2, 15);
+    game.camera.viewport.add(_inputStream);
+    // add output textcomponent
+    _outputStream = TextComponent(
+      text: 'Output stream',
+      textRenderer: TextPaint(
+        style: const TextStyle(
+          fontSize: 20,
+          color: Color(0xFFC8FFF5),
+        ),
+      ),
+      anchor: Anchor.bottomLeft,
+    );
+    _outputStream.position = Vector2(10, game.camera.viewport.size.y - 10);
+    game.camera.viewport.add(_outputStream);
+
     ballPos = Vector2(visibleRect.center.dx, visibleRect.center.dy);
     paddlePos1 = Vector2(visibleRect.center.dx - 10 * Config.ballRadius,
         visibleRect.bottomLeft.dy - 10);
@@ -205,14 +343,11 @@ class LevelPage extends DecoratedWorld
         visibleRect.bottomLeft.dy - 9);
     targetPos = Vector2(-10, 30);
     super.onLoad();
-  }
-
-  void pushSample() {
-    // push a sample to the stream
-    Log.log.fine('LevelPage pushSample');
-    DataStream.instance.outlet!.pushSample([
-      paddle!.pressedRight - paddle!.pressedLeft,
-    ]);
+    // timer = Timer.periodic(
+    //   const Duration(milliseconds: 10),
+    //   pushSample,
+    // );
+    Log.log.fine('LevelPage onLoad - Timer started');
   }
 
   @override
@@ -238,7 +373,28 @@ class LevelPage extends DecoratedWorld
       target,
       ...walls,
     ]);
+
+    // timer ??= Timer.periodic(
+    //   const Duration(milliseconds: 10),
+    //   pushSample,
+    // );
+    Log.log.fine('LevelPage onMount - Timer started');
     super.onMount();
+  }
+
+  Future<void> pullSampleAndUpdate() async {
+    if (game.inlet == null) {
+      return;
+    }
+    final sample = await game.inlet!.pullSample();
+    if (sample.length > 0) {
+      _inputStream.text = 'Input stream: ${sample[0]}';
+    }
+  }
+
+  Future<void> pushSampleAndUpdate(int value) async {
+    game.outlet.pushSample([value]);
+    _outputStream.text = 'Input stream: $value';
   }
 
   @override
@@ -252,12 +408,15 @@ class LevelPage extends DecoratedWorld
       removeAll(children);
       return;
     }
+    pullSampleAndUpdate();
   }
 
   @override
   void onRemove() {
     // Optional based on your game needs.
     Log.log.fine('LevelPage onRemove');
+    // timer?.cancel();
+    // timer = null;
     super.onRemove();
   }
 
@@ -265,14 +424,17 @@ class LevelPage extends DecoratedWorld
   void onTapDown(TapDownEvent event) {
     final visibleRect = game.camera.visibleWorldRect;
     if (game.screenToWorld(event.canvasPosition).x < visibleRect.topCenter.dx) {
+      pushSampleAndUpdate(-1);
       paddle!.pressLeft();
     } else {
+      pushSampleAndUpdate(1);
       paddle!.pressRight();
     }
   }
 
   @override
   void onTapUp(TapUpEvent event) {
+    pushSampleAndUpdate(0);
     paddle!.releaseLeft();
     paddle!.releaseRight();
   }
@@ -283,8 +445,10 @@ class LevelPage extends DecoratedWorld
     final visibleRect = game.camera.visibleWorldRect;
 
     if (game.screenToWorld(event.canvasPosition).x < visibleRect.topCenter.dx) {
+      pushSampleAndUpdate(-1);
       paddle!.pressLeft();
     } else {
+      pushSampleAndUpdate(1);
       paddle!.pressRight();
     }
   }
@@ -292,6 +456,7 @@ class LevelPage extends DecoratedWorld
   @override
   void onDragEnd(DragEndEvent event) {
     super.onDragEnd(event);
+    pushSampleAndUpdate(0);
     paddle!.releaseLeft();
     paddle!.releaseRight();
   }
@@ -299,6 +464,7 @@ class LevelPage extends DecoratedWorld
   @override
   void onDragCancel(DragCancelEvent event) {
     super.onDragCancel(event);
+    pushSampleAndUpdate(0);
     paddle!.releaseLeft();
     paddle!.releaseRight();
   }
@@ -336,8 +502,8 @@ class DecoratedWorld extends Forge2DWorld with HasTimeScale {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
-  await FullScreen.ensureInitialized();
-  FullScreen.setFullScreen(true);
+  //await FullScreen.ensureInitialized();
+  // FullScreen.setFullScreen(true);
   Logger.root.level = Level.ALL; // defaults to Level.INFO
   Logger.root.onRecord.listen((record) {
     // ignore: avoid_print

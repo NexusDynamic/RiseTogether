@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.zeyus.rise_together"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973" // this is because apparently a plugin (probably libls) requires 27.x
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
