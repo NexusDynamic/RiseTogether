@@ -7,13 +7,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:rise_together/main.dart';
+import 'package:flame/src/game/game_widget/game_widget.dart' show GameWidget;
+import 'package:RiseTogether/main.dart';
 
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const GameWidget(RiseTogetherGame.new));
+    await tester.pumpWidget(GameWidget(game: RiseTogetherGame()));
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);

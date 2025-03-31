@@ -1,4 +1,4 @@
-import 'package:rise_together/main.dart';
+import 'package:RiseTogether/main.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 
 /// Target component.
@@ -19,10 +19,7 @@ class Target extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
   Body createBody() {
     final shape = CircleShape()..radius = radius;
     final fixtureDef = FixtureDef(shape, friction: 0.3);
-    final bodyDef = BodyDef(
-      userData: this,
-      position: pos,
-    );
+    final bodyDef = BodyDef(userData: this, position: pos);
 
     return world.createBody(bodyDef)..createFixture(fixtureDef);
   }

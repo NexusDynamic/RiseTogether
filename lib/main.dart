@@ -1,10 +1,9 @@
-import 'dart:isolate';
-
 import 'package:flame/extensions.dart';
 import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flame/rendering.dart';
 import 'package:flame_forge2d/flame_forge2d.dart' hide Vector2;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'components/ball.dart';
 import 'components/wall.dart';
@@ -36,8 +35,10 @@ class Util {
   static String getRandomString(int length) {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     Random random = Random();
-    return List.generate(length, (index) => chars[random.nextInt(chars.length)])
-        .join();
+    return List.generate(
+      length,
+      (index) => chars[random.nextInt(chars.length)],
+    ).join();
   }
 }
 
@@ -50,23 +51,36 @@ class RiseTogetherGame extends Forge2DGame
   late LSLIsolatedOutlet outlet;
   late LSLStreamInfo streamInfo;
   LSLIsolatedInlet? inlet;
+  MethodChannel? rtNetworkingChannel;
 
-  Future<void> pushDiscovery() async {
-    // Push a discovery sample to the outlet
-    Isolate.run(() async {
-      int sampleCount = 0;
-      while (sampleCount < 100) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        outlet.pushSample([9]);
-        sampleCount++;
-      }
-      Log.log.fine('Pushed discovery sample to outlet');
-    });
+  static Future<void> pushDiscovery(LSLIsolatedOutlet o) async {
+    // Push discovery sample to the outlet
+    int sampleCount = 0;
+    while (sampleCount < 10) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      o.pushSample([9]);
+      sampleCount++;
+      Log.log.fine('Pushed discovery sample $sampleCount to outlet');
+    }
   }
 
   @override
   void onLoad() async {
     await super.onLoad();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      // get multicast lock
+      if (rtNetworkingChannel == null) {
+        rtNetworkingChannel = MethodChannel(
+          'com.zeyus.RiseTogether/Networking',
+        );
+        try {
+          await rtNetworkingChannel!.invokeMethod('acquireMulticastLock');
+          Log.log.fine('acquireMulticastLock: success');
+        } on PlatformException catch (e) {
+          Log.log.severe('Failed to acquire multicast lock: ${e.message}');
+        }
+      }
+    }
     // Initialize the LSL library
     streamInfo = await LSL.createStreamInfo(
       streamName: 'TapEvents',
@@ -78,7 +92,7 @@ class RiseTogetherGame extends Forge2DGame
     );
     outlet = await LSL.createOutlet(streamInfo: streamInfo);
     // Push a discovery sample to the outlet
-    await pushDiscovery();
+    pushDiscovery(outlet);
     Log.log.fine('RiseTogetherGame loaded');
     await add(
       router = RouterComponent(
@@ -98,6 +112,14 @@ class RiseTogetherGame extends Forge2DGame
     inlet?.destroy();
     streamInfo.destroy();
     Log.log.fine('RiseTogetherGame disposed');
+    // release multicast lock
+
+    try {
+      rtNetworkingChannel?.invokeMethod('releaseMulticastLock');
+      Log.log.fine('releaseMulticastLock: success');
+    } on PlatformException catch (e) {
+      Log.log.severe('Failed to release multicast lock: ${e.message}');
+    }
     super.onDispose();
   }
 
@@ -138,10 +160,7 @@ class MenuPage extends Component
       _participantId = TextComponent(
         text: game.participantId,
         textRenderer: TextPaint(
-          style: const TextStyle(
-            fontSize: 20,
-            color: Color(0xFFC8FFF5),
-          ),
+          style: const TextStyle(fontSize: 20, color: Color(0xFFC8FFF5)),
         ),
         anchor: Anchor.center,
       ),
@@ -161,8 +180,10 @@ class MenuPage extends Component
           // log the action
           Log.log.fine('MenuPage, find streams button pressed');
           // find streams
-          final List<LSLStreamInfo> streams =
-              await LSL.resolveStreams(waitTime: 5.0, maxStreams: 10);
+          final List<LSLStreamInfo> streams = await LSL.resolveStreams(
+            waitTime: 5.0,
+            maxStreams: 10,
+          );
           if (streams.isNotEmpty) {
             // update the stream info text with each stream name
             Log.log.fine('Found streams: ${streams.length}');
@@ -184,10 +205,7 @@ class MenuPage extends Component
       _streamInfo = TextComponent(
         text: streamInfoText,
         textRenderer: TextPaint(
-          style: const TextStyle(
-            fontSize: 20,
-            color: Color(0xFFC8FFF5),
-          ),
+          style: const TextStyle(fontSize: 20, color: Color(0xFFC8FFF5)),
         ),
         anchor: Anchor.center,
       ),
@@ -200,8 +218,10 @@ class MenuPage extends Component
     if (event is KeyDownEvent) {
       if (event.logicalKey == LogicalKeyboardKey.backspace &&
           _participantId.text.isNotEmpty) {
-        _participantId.text =
-            _participantId.text.substring(0, _participantId.text.length - 1);
+        _participantId.text = _participantId.text.substring(
+          0,
+          _participantId.text.length - 1,
+        );
       } else {
         _participantId.text += event.logicalKey.keyLabel;
       }
@@ -237,12 +257,12 @@ class RoundedButton extends PositionComponent with TapCallbacks {
     super.position,
     super.anchor = Anchor.center,
   }) : _textDrawable = TextPaint(
-          style: const TextStyle(
-            fontSize: 20,
-            color: Color(0xFF000000),
-            fontWeight: FontWeight.w800,
-          ),
-        ).toTextPainter(text) {
+         style: const TextStyle(
+           fontSize: 20,
+           color: Color(0xFF000000),
+           fontWeight: FontWeight.w800,
+         ),
+       ).toTextPainter(text) {
     size = Vector2(150, 40);
     _textOffset = Offset(
       (size.x - _textDrawable.width) / 2,
@@ -250,10 +270,11 @@ class RoundedButton extends PositionComponent with TapCallbacks {
     );
     _rrect = RRect.fromLTRBR(0, 0, size.x, size.y, Radius.circular(size.y / 2));
     _bgPaint = Paint()..color = color;
-    _borderPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = borderColor;
+    _borderPaint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = borderColor;
   }
 
   final String text;
@@ -313,10 +334,7 @@ class LevelPage extends DecoratedWorld
     _inputStream = TextComponent(
       text: 'Input stream',
       textRenderer: TextPaint(
-        style: const TextStyle(
-          fontSize: 20,
-          color: Color(0xFFC8FFF5),
-        ),
+        style: const TextStyle(fontSize: 20, color: Color(0xFFC8FFF5)),
       ),
       anchor: Anchor.topLeft,
     );
@@ -326,10 +344,7 @@ class LevelPage extends DecoratedWorld
     _outputStream = TextComponent(
       text: 'Output stream',
       textRenderer: TextPaint(
-        style: const TextStyle(
-          fontSize: 20,
-          color: Color(0xFFC8FFF5),
-        ),
+        style: const TextStyle(fontSize: 20, color: Color(0xFFC8FFF5)),
       ),
       anchor: Anchor.bottomLeft,
     );
@@ -337,10 +352,14 @@ class LevelPage extends DecoratedWorld
     game.camera.viewport.add(_outputStream);
 
     ballPos = Vector2(visibleRect.center.dx, visibleRect.center.dy);
-    paddlePos1 = Vector2(visibleRect.center.dx - 10 * Config.ballRadius,
-        visibleRect.bottomLeft.dy - 10);
-    paddlePos2 = Vector2(visibleRect.center.dx + 10 * Config.ballRadius,
-        visibleRect.bottomLeft.dy - 9);
+    paddlePos1 = Vector2(
+      visibleRect.center.dx - 10 * Config.ballRadius,
+      visibleRect.bottomLeft.dy - 10,
+    );
+    paddlePos2 = Vector2(
+      visibleRect.center.dx + 10 * Config.ballRadius,
+      visibleRect.bottomLeft.dy - 9,
+    );
     targetPos = Vector2(-10, 30);
     super.onLoad();
     // timer = Timer.periodic(
@@ -354,25 +373,21 @@ class LevelPage extends DecoratedWorld
   void onMount() {
     gameOver = false;
     Ball ball = Ball(
-        radius: Config.ballRadius,
-        paint: Paint()..color = const Color(0xFFFF0000),
-        pos: ballPos);
+      radius: Config.ballRadius,
+      paint: Paint()..color = const Color(0xFFFF0000),
+      pos: ballPos,
+    );
     // ball.anchor = Anchor.center;
 
-    paddle = Paddle(
-      paddlePos1,
-      paddlePos2,
-    );
+    paddle = Paddle(paddlePos1, paddlePos2);
 
-    Target target = Target(Config.ballRadius * 3, targetPos,
-        paint: Paint()..color = const Color(0xFFFF0000));
+    Target target = Target(
+      Config.ballRadius * 3,
+      targetPos,
+      paint: Paint()..color = const Color(0xFFFF0000),
+    );
     List<Component> walls = createBoundaries();
-    addAll([
-      ball,
-      paddle!,
-      target,
-      ...walls,
-    ]);
+    addAll([ball, paddle!, target, ...walls]);
 
     // timer ??= Timer.periodic(
     //   const Duration(milliseconds: 10),
@@ -502,8 +517,8 @@ class DecoratedWorld extends Forge2DWorld with HasTimeScale {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
-  //await FullScreen.ensureInitialized();
-  // FullScreen.setFullScreen(true);
+  await FullScreen.ensureInitialized();
+  FullScreen.setFullScreen(true);
   Logger.root.level = Level.ALL; // defaults to Level.INFO
   Logger.root.onRecord.listen((record) {
     // ignore: avoid_print

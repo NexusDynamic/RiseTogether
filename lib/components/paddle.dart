@@ -1,4 +1,4 @@
-import 'package:rise_together/main.dart';
+import 'package:RiseTogether/main.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 
 class Paddle extends BodyComponent<RiseTogetherGame> {
@@ -14,10 +14,10 @@ class Paddle extends BodyComponent<RiseTogetherGame> {
   double pressedRight = 0;
 
   Paddle(this._start, this._end)
-      : _w = (_end.x - _start.x) / 2,
-        _h = (_end.y - _start.y) / 2,
-        _impulseOriginLeft = Vector2(_start.x - (_end.x - _start.x) / 4, 0),
-        _impulseOriginRight = Vector2(_end.x + (_end.x - _start.x) / 4, 0);
+    : _w = (_end.x - _start.x) / 2,
+      _h = (_end.y - _start.y) / 2,
+      _impulseOriginLeft = Vector2(_start.x - (_end.x - _start.x) / 4, 0),
+      _impulseOriginRight = Vector2(_end.x + (_end.x - _start.x) / 4, 0);
 
   @override
   Body createBody() {
@@ -43,12 +43,14 @@ class Paddle extends BodyComponent<RiseTogetherGame> {
       // based on the paddle's current location
       if (body.angle < 1.3) {
         body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedLeft),
-            point: _impulseOriginLeft + Vector2(0, body.worldCenter.y));
+          Vector2(0, -10 * 1 / participants * pressedLeft),
+          point: _impulseOriginLeft + Vector2(0, body.worldCenter.y),
+        );
       } else {
         body.angularVelocity = 0.0;
         body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedLeft));
+          Vector2(0, -10 * 1 / participants * pressedLeft),
+        );
       }
     }
     if (pressedRight > 0) {
@@ -56,12 +58,14 @@ class Paddle extends BodyComponent<RiseTogetherGame> {
       // based on the paddle's current location
       if (body.angle > -1.3) {
         body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedRight),
-            point: _impulseOriginRight + Vector2(0, body.worldCenter.y));
+          Vector2(0, -10 * 1 / participants * pressedRight),
+          point: _impulseOriginRight + Vector2(0, body.worldCenter.y),
+        );
       } else {
         body.angularVelocity = 0.0;
         body.applyLinearImpulse(
-            Vector2(0, -10 * 1 / participants * pressedRight));
+          Vector2(0, -10 * 1 / participants * pressedRight),
+        );
       }
     }
   }

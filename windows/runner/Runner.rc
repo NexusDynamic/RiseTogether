@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.zeyus" "\0"
-            VALUE "FileDescription", "rise_together" "\0"
+            VALUE "FileDescription", "RiseTogether" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "rise_together" "\0"
+            VALUE "InternalName", "RiseTogether" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2024 com.zeyus. All rights reserved." "\0"
-            VALUE "OriginalFilename", "rise_together.exe" "\0"
-            VALUE "ProductName", "rise_together" "\0"
+            VALUE "OriginalFilename", "RiseTogether.exe" "\0"
+            VALUE "ProductName", "RiseTogether" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

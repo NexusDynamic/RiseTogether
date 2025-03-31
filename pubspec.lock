@@ -110,7 +110,7 @@ packages:
     description:
       path: "packages/flame"
       ref: "feat/Vector2_32bit"
-      resolved-ref: c0e9f165e54b08b99a5a0cbec71e6f440da8c3bb
+      resolved-ref: "413282b934e9a051395db8711ca8467b0c0c18bb"
       url: "https://github.com/zeyus/flame.git"
     source: git
     version: "1.26.1"
@@ -119,7 +119,7 @@ packages:
     description:
       path: "packages/flame_forge2d"
       ref: "feat/Vector2_32bit"
-      resolved-ref: c0e9f165e54b08b99a5a0cbec71e6f440da8c3bb
+      resolved-ref: "413282b934e9a051395db8711ca8467b0c0c18bb"
       url: "https://github.com/zeyus/flame.git"
     source: git
     version: "0.18.3"
@@ -218,10 +218,9 @@ packages:
   liblsl:
     dependency: "direct main"
     description:
-      name: liblsl
-      sha256: "3d58a86f14116fa8e718e7ee6087e9b031681fa230f2570ddc10b0eab11a1da3"
-      url: "https://pub.dev"
-    source: hosted
+      path: "../liblsl.dart/packages/liblsl"
+      relative: true
+    source: path
     version: "0.3.0"
   lints:
     dependency: transitive

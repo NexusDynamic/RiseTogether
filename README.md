@@ -1,4 +1,4 @@
-# rise_together
+# RiseTogether
 
 early work in progress.
 
