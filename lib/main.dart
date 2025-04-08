@@ -188,8 +188,13 @@ class MenuPage extends Component
             // update the stream info text with each stream name
             Log.log.fine('Found streams: ${streams.length}');
             for (final stream in streams) {
-              Log.log.fine('Found stream: ${stream.streamName}');
-              if (stream.hostname != 'localhost') {
+              Log.log.fine(
+                'Found stream: ${stream.streamName}, ${stream.sourceId}',
+              );
+              if (stream.sourceId != game.streamInfo.sourceId) {
+                Log.log.fine(
+                  'Listening to: ${stream.streamName}, ${stream.sourceId}',
+                );
                 game.inlet = await LSL.createInlet(streamInfo: stream);
               }
             }
