@@ -10,24 +10,20 @@ import 'components/wall.dart';
 import 'components/paddle.dart';
 import 'components/target.dart';
 import 'config.dart';
+import 'components/split_world.dart';
+import 'services/lsl_service.dart';
 import 'package:flame/components.dart' hide Timer;
 import 'package:flutter/material.dart' hide Route;
 import 'package:logging/logging.dart';
 import 'package:liblsl/lsl.dart';
-// ignore: implementation_imports @TODO: export this in the library
-import 'package:liblsl/src/lsl/isolated_outlet.dart' show LSLIsolatedOutlet;
-// ignore: implementation_imports @TODO: export this in the library
-import 'package:liblsl/src/lsl/isolated_inlet.dart' show LSLIsolatedInlet;
 import 'dart:async';
 import 'dart:math';
-//import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 // Log singleton
 class Log {
   static final Logger _log = Logger('RiseTogetherGame');
-
   static Logger get log => _log;
 }
 
@@ -42,33 +38,25 @@ class Util {
   }
 }
 
-// https://docs.flame-engine.org/latest/flame/collision_detection.html
-// might be worth considering if the two panels require individual collision detection
+// class RiseTogetherGame extends Forge2DGame
+//     with SingleGameInstance, HasKeyboardHandlerComponents {
+
 class RiseTogetherGame extends Forge2DGame
     with SingleGameInstance, HasKeyboardHandlerComponents {
   late final RouterComponent router;
   String participantId = Util.getRandomString(10);
-  late LSLIsolatedOutlet outlet;
-  late LSLStreamInfo streamInfo;
-  LSLIsolatedInlet? inlet;
+  String teamId = "team1"; // Default team, can be changed
   MethodChannel? rtNetworkingChannel;
-
-  static Future<void> pushDiscovery(LSLIsolatedOutlet o) async {
-    // Push discovery sample to the outlet
-    int sampleCount = 0;
-    while (sampleCount < 10) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      o.pushSample([9]);
-      sampleCount++;
-      Log.log.fine('Pushed discovery sample $sampleCount to outlet');
-    }
-  }
+  LSLService? lslService;
 
   @override
-  void onLoad() async {
+  Future<void> onLoad() async {
+    // Set the time scale to 1.0 (normal speed)
+    camera.viewfinder.anchor = Anchor.center;
     await super.onLoad();
+
+    // Initialize multicast for Android
     if (defaultTargetPlatform == TargetPlatform.android) {
-      // get multicast lock
       if (rtNetworkingChannel == null) {
         rtNetworkingChannel = MethodChannel(
           'com.zeyus.RiseTogether/Networking',
@@ -81,24 +69,25 @@ class RiseTogetherGame extends Forge2DGame
         }
       }
     }
-    // Initialize the LSL library
-    streamInfo = await LSL.createStreamInfo(
-      streamName: 'TapEvents',
-      streamType: LSLContentType.markers,
-      channelFormat: LSLChannelFormat.int8,
-      channelCount: 1,
-      sampleRate: LSL_IRREGULAR_RATE,
-      sourceId: 'client-$participantId',
-    );
-    outlet = await LSL.createOutlet(streamInfo: streamInfo);
-    // Push a discovery sample to the outlet
-    pushDiscovery(outlet);
+
+    // Initialize LSL service
+    lslService = LSLService(participantId: participantId, teamId: teamId);
+    await lslService!.initialize();
+
     Log.log.fine('RiseTogetherGame loaded');
+
+    // Setup game routes
     await add(
       router = RouterComponent(
         routes: {
           'home': Route(MenuPage.new),
           'level': WorldRoute(LevelPage.new),
+          'split_level': WorldRoute(
+            () => SplitScreenLevelPage(
+              localTeamId: teamId,
+              remoteTeamId: teamId == "team1" ? "team2" : "team1",
+            ),
+          ),
         },
         initialRoute: 'home',
       ),
@@ -107,12 +96,8 @@ class RiseTogetherGame extends Forge2DGame
 
   @override
   void onDispose() {
-    // Dispose of the LSL outlet (@note: not called on Hot Reload/Restart)
-    outlet.destroy();
-    inlet?.destroy();
-    streamInfo.destroy();
-    Log.log.fine('RiseTogetherGame disposed');
-    // release multicast lock
+    // Clean up resources
+    lslService?.dispose();
 
     try {
       rtNetworkingChannel?.invokeMethod('releaseMulticastLock');
@@ -124,20 +109,6 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   RiseTogetherGame() : super(gravity: Vector2(0, 15.0));
-}
-
-class App extends StatelessWidget {
-  const App({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      localizationsDelegates: context.localizationDelegates,
-      supportedLocales: context.supportedLocales,
-      locale: context.locale,
-      home: GameWidget(game: RiseTogetherGame()),
-    );
-  }
 }
 
 class MenuPage extends Component
@@ -164,10 +135,16 @@ class MenuPage extends Component
         ),
         anchor: Anchor.center,
       ),
+      _teamSelector = TextComponent(
+        text: 'Team: ${game.teamId}',
+        textRenderer: TextPaint(
+          style: const TextStyle(fontSize: 20, color: Color(0xFFC8FFF5)),
+        ),
+        anchor: Anchor.center,
+      ),
       _button1 = RoundedButton(
-        text: 'Level 1',
+        text: 'Single Player Mode',
         action: () {
-          // log the action
           Log.log.fine('MenuPage, level1 button pressed');
           game.router.pushNamed('level');
         },
@@ -175,6 +152,34 @@ class MenuPage extends Component
         borderColor: const Color(0xffedffab),
       ),
       _button2 = RoundedButton(
+        text: 'Split Screen Mode',
+        action: () {
+          Log.log.fine('MenuPage, split screen button pressed');
+          game.router.pushNamed('split_level');
+        },
+        color: const Color(0xffadde6c),
+        borderColor: const Color(0xffedffab),
+      ),
+      _button3 = RoundedButton(
+        text: 'Switch Team',
+        action: () {
+          // Toggle team
+          game.teamId = game.teamId == "team1" ? "team2" : "team1";
+          _teamSelector.text = 'Team: ${game.teamId}';
+
+          // Reinitialize LSL service with new team ID
+          game.lslService?.dispose();
+          game.lslService = LSLService(
+            participantId: game.participantId,
+            teamId: game.teamId,
+          );
+          game.lslService!.initialize();
+          Log.log.fine('Switched to ${game.teamId}');
+        },
+        color: const Color(0xffadde6c),
+        borderColor: const Color(0xffedffab),
+      ),
+      _button4 = RoundedButton(
         text: 'Find streams',
         action: () async {
           // log the action
@@ -187,17 +192,7 @@ class MenuPage extends Component
           if (streams.isNotEmpty) {
             // update the stream info text with each stream name
             Log.log.fine('Found streams: ${streams.length}');
-            for (final stream in streams) {
-              Log.log.fine(
-                'Found stream: ${stream.streamName}, ${stream.sourceId}',
-              );
-              if (stream.sourceId != game.streamInfo.sourceId) {
-                Log.log.fine(
-                  'Listening to: ${stream.streamName}, ${stream.sourceId}',
-                );
-                game.inlet = await LSL.createInlet(streamInfo: stream);
-              }
-            }
+
             streamInfoText =
                 'Found streams:\n${streams.map((stream) => '${stream.streamName} (${stream.sourceId}: ${stream.hostname})').join('\n')}';
             _streamInfo.text = streamInfoText;
@@ -206,11 +201,10 @@ class MenuPage extends Component
         color: const Color(0xffadde6c),
         borderColor: const Color(0xffedffab),
       ),
-      // stream info text
       _streamInfo = TextComponent(
         text: streamInfoText,
         textRenderer: TextPaint(
-          style: const TextStyle(fontSize: 20, color: Color(0xFFC8FFF5)),
+          style: const TextStyle(fontSize: 16, color: Color(0xFFC8FFF5)),
         ),
         anchor: Anchor.center,
       ),
@@ -238,18 +232,24 @@ class MenuPage extends Component
 
   late final TextComponent _logo;
   late final TextComponent _participantId;
+  late final TextComponent _teamSelector;
   late final RoundedButton _button1;
   late final RoundedButton _button2;
+  late final RoundedButton _button3;
+  late final RoundedButton _button4;
   late final TextComponent _streamInfo;
 
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    _logo.position = Vector2(size.x / 2, size.y / 3);
-    _button1.position = Vector2(size.x / 2, _logo.y + 80);
-    _button2.position = Vector2(size.x / 2, _button1.y + 80);
-    _participantId.position = Vector2(size.x / 2, _button2.y + 80);
-    _streamInfo.position = Vector2(size.x / 2, _participantId.y + 80);
+    _logo.position = Vector2(size.x / 2, size.y / 6);
+    _participantId.position = Vector2(size.x / 2, _logo.y + 60);
+    _teamSelector.position = Vector2(size.x / 2, _participantId.y + 40);
+    _button1.position = Vector2(size.x / 2, _teamSelector.y + 60);
+    _button2.position = Vector2(size.x / 2, _button1.y + 60);
+    _button3.position = Vector2(size.x / 2, _button2.y + 60);
+    _button4.position = Vector2(size.x / 2, _button3.y + 60);
+    _streamInfo.position = Vector2(size.x / 2, _button4.y + 60);
   }
 }
 
@@ -319,7 +319,6 @@ class RoundedButton extends PositionComponent with TapCallbacks {
 
 class LevelPage extends DecoratedWorld
     with HasGameRef<RiseTogetherGame>, TapCallbacks, DragCallbacks {
-  late final RouterComponent router;
   late Rect visibleRect;
   late Vector2 ballPos;
   late Vector2 paddlePos1;
@@ -334,6 +333,10 @@ class LevelPage extends DecoratedWorld
   void onLoad() async {
     await game.loadSprite('ball.png');
     visibleRect = game.camera.visibleWorldRect;
+    game.camera.viewfinder.position = Vector2(
+      visibleRect.center.dx,
+      visibleRect.center.dy,
+    );
     game.camera.viewport.add(FpsTextComponent(position: Vector2(15, 10)));
     // add input textcomponent
     _inputStream = TextComponent(
@@ -367,22 +370,17 @@ class LevelPage extends DecoratedWorld
     );
     targetPos = Vector2(-10, 30);
     super.onLoad();
-    // timer = Timer.periodic(
-    //   const Duration(milliseconds: 10),
-    //   pushSample,
-    // );
-    Log.log.fine('LevelPage onLoad - Timer started');
+    Log.log.fine('LevelPage onLoad');
   }
 
   @override
-  void onMount() {
+  void onMount() async {
     gameOver = false;
     Ball ball = Ball(
       radius: Config.ballRadius,
       paint: Paint()..color = const Color(0xFFFF0000),
       pos: ballPos,
     );
-    // ball.anchor = Anchor.center;
 
     paddle = Paddle(paddlePos1, paddlePos2);
 
@@ -392,29 +390,28 @@ class LevelPage extends DecoratedWorld
       paint: Paint()..color = const Color(0xFFFF0000),
     );
     List<Component> walls = createBoundaries();
-    addAll([ball, paddle!, target, ...walls]);
+    await addAll([ball, paddle!, target, ...walls]);
 
-    // timer ??= Timer.periodic(
-    //   const Duration(milliseconds: 10),
-    //   pushSample,
-    // );
-    Log.log.fine('LevelPage onMount - Timer started');
+    Log.log.fine('LevelPage onMount');
     super.onMount();
   }
 
   Future<void> pullSampleAndUpdate() async {
-    if (game.inlet == null) {
+    if (game.lslService == null) {
       return;
     }
-    final sample = await game.inlet!.pullSample();
-    if (sample.length > 0) {
-      _inputStream.text = 'Input stream: ${sample[0]}';
-    }
+
+    // Use the LSL service methods instead of direct inlet access
+    // This method would need to be adapted to use the new LSLService
   }
 
   Future<void> pushSampleAndUpdate(int value) async {
-    game.outlet.pushSample([value]);
-    _outputStream.text = 'Input stream: $value';
+    // Use the LSL service to send player input
+    if (game.lslService != null) {
+      String input = value == -1 ? "left" : (value == 1 ? "right" : "none");
+      game.lslService!.sendPlayerInput(input);
+      _outputStream.text = 'Output: $input';
+    }
   }
 
   @override
@@ -433,10 +430,7 @@ class LevelPage extends DecoratedWorld
 
   @override
   void onRemove() {
-    // Optional based on your game needs.
     Log.log.fine('LevelPage onRemove');
-    // timer?.cancel();
-    // timer = null;
     super.onRemove();
   }
 
@@ -536,8 +530,21 @@ void main() async {
       fallbackLocale: Locale('en'),
       startLocale: Locale('da'),
       useOnlyLangCode: true,
-      // child: GameWidget(game: RiseTogetherGame()),
       child: App(),
     ),
   );
+}
+
+class App extends StatelessWidget {
+  const App({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      localizationsDelegates: context.localizationDelegates,
+      supportedLocales: context.supportedLocales,
+      locale: context.locale,
+      home: GameWidget(game: RiseTogetherGame()),
+    );
+  }
 }

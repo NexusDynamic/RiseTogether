@@ -14,13 +14,18 @@ class Paddle extends BodyComponent<RiseTogetherGame> {
   double pressedRight = 0;
 
   Paddle(this._start, this._end)
-    : _w = (_end.x - _start.x) / 2,
-      _h = (_end.y - _start.y) / 2,
+    : _w = max((_end.x - _start.x) / 2, 0.5), // Ensure minimum width
+      _h = max((_end.y - _start.y) / 2, 0.5), // Ensure minimum height
       _impulseOriginLeft = Vector2(_start.x - (_end.x - _start.x) / 4, 0),
       _impulseOriginRight = Vector2(_end.x + (_end.x - _start.x) / 4, 0);
 
+  // Helper function to ensure we have a minimum value
+  static double max(double a, double b) => a > b ? a : b;
+
   @override
   Body createBody() {
+    Log.log.fine('Creating paddle body with w: $_w, h: $_h');
+
     final shape = PolygonShape()..setAsBoxXY(_w, _h);
 
     final fixtureDef = FixtureDef(shape, friction: 1.0, density: 10.0);
@@ -30,6 +35,7 @@ class Paddle extends BodyComponent<RiseTogetherGame> {
       gravityOverride: Vector2(0, 0),
     );
 
+    Log.log.fine('Paddle position: ${bodyDef.position}');
     return world.createBody(bodyDef)..createFixture(fixtureDef);
   }
 
