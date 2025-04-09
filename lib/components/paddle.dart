@@ -3,7 +3,6 @@ import 'package:flame_forge2d/flame_forge2d.dart';
 
 class Paddle extends BodyComponent<RiseTogetherGame> {
   final Vector2 _start;
-  final Vector2 _end;
   final double _w;
   final double _h;
   final Vector2 _impulseOriginLeft;
@@ -13,7 +12,7 @@ class Paddle extends BodyComponent<RiseTogetherGame> {
   double pressedLeft = 0;
   double pressedRight = 0;
 
-  Paddle(this._start, this._end)
+  Paddle(this._start, _end)
     : _w = max((_end.x - _start.x) / 2, 0.5), // Ensure minimum width
       _h = max((_end.y - _start.y) / 2, 0.5), // Ensure minimum height
       _impulseOriginLeft = Vector2(_start.x - (_end.x - _start.x) / 4, 0),
@@ -31,7 +30,7 @@ class Paddle extends BodyComponent<RiseTogetherGame> {
     final fixtureDef = FixtureDef(shape, friction: 1.0, density: 10.0);
     final bodyDef = BodyDef(
       type: BodyType.dynamic,
-      position: Vector2(camera.visibleWorldRect.center.dx, _start.y),
+      position: Vector2(_start.x + _w, _start.y),
       gravityOverride: Vector2(0, 0),
     );
 

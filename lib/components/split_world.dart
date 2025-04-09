@@ -1,5 +1,6 @@
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
+import 'package:flame_forge2d/flame_forge2d.dart' show BodyComponent;
 import 'package:flutter/material.dart';
 import 'package:RiseTogether/main.dart';
 import 'package:RiseTogether/components/ball.dart';
@@ -21,14 +22,23 @@ class SplitScreenLevelPage extends DecoratedWorld
   // Local team components
   Ball? localBall;
   Paddle? localPaddle;
+  List<BodyComponent<RiseTogetherGame>> localWorldElements = [];
 
   // Remote team components
   Ball? remoteBall;
   Paddle? remotePaddle;
+  List<BodyComponent<RiseTogetherGame>> remoteWorldElements = [];
+
+  // Camera and viewport variables
+  late double worldWidth;
+  late double worldHeight;
+  late double halfScreenWidth;
+  double worldOffset = 0; // How far the world has "moved down"
 
   // UI components
   late TextComponent statusText;
   late TextComponent scoreText;
+  late TextComponent debugText;
 
   SplitScreenLevelPage({required this.localTeamId, required this.remoteTeamId});
 
@@ -36,13 +46,16 @@ class SplitScreenLevelPage extends DecoratedWorld
   Future<void> onLoad() async {
     Log.log.fine('SplitScreenLevelPage onLoad started');
 
-    // Initialize camera
+    // Force reset camera position to origin before getting dimensions
+    gameRef.camera.viewfinder.position = Vector2.zero();
+
+    // Get the visible world rectangle AFTER resetting camera
     final visibleRect = gameRef.camera.visibleWorldRect;
-    // Center the camera properly on the world
-    gameRef.camera.viewfinder.position = Vector2(
-      visibleRect.center.dx,
-      visibleRect.center.dy,
-    );
+    worldWidth = visibleRect.width;
+    worldHeight = visibleRect.height;
+    halfScreenWidth = worldWidth / 2;
+
+    Log.log.fine('Visible world: width=$worldWidth, height=$worldHeight');
 
     // Setup UI components in the viewport (not the world)
     statusText = TextComponent(
@@ -63,33 +76,54 @@ class SplitScreenLevelPage extends DecoratedWorld
       position: Vector2(gameRef.camera.viewport.size.x / 2, 30),
     );
 
+    debugText = TextComponent(
+      text: 'Debug: Initializing...',
+      textRenderer: TextPaint(
+        style: const TextStyle(fontSize: 14, color: Color(0xFFFF00FF)),
+      ),
+      anchor: Anchor.topLeft,
+      position: Vector2(10, 50),
+    );
+
     // Add UI components to the viewport
     gameRef.camera.viewport.add(statusText);
     gameRef.camera.viewport.add(scoreText);
+    gameRef.camera.viewport.add(debugText);
+
+    // Set initial ball and paddle positions
+    final ballPositionY = worldHeight * 0.6; // Lower to ensure visibility
+    final paddlePositionY =
+        ballPositionY + Config.ballRadius * 3; // Below the ball
 
     // Create team states
-    final ballPosition = Vector2(visibleRect.center.dx, visibleRect.height / 2);
-
-    // Paddle near the bottom but still visible
-    final paddlePosition = Vector2(
-      visibleRect.center.dx,
-      visibleRect.height * 0.8, // 80% down the screen
-    );
-
     localTeamState = TeamState(
       teamId: localTeamId,
-      ballPosition: ballPosition,
-      paddlePosition: paddlePosition,
+      ballPosition: Vector2(worldWidth * 0.25, ballPositionY), // 1/4 across
+      paddlePosition: Vector2(worldWidth * 0.25, paddlePositionY),
     );
 
     remoteTeamState = TeamState(
       teamId: remoteTeamId,
-      ballPosition: ballPosition,
-      paddlePosition: paddlePosition,
+      ballPosition: Vector2(worldWidth * 0.75, ballPositionY), // 3/4 across
+      paddlePosition: Vector2(worldWidth * 0.75, paddlePositionY),
     );
 
     // Load asset
     await gameRef.loadSprite('ball.png');
+
+    // First add walls to ensure they're behind other elements
+    final localWalls = createBoundaries(true);
+    final remoteWalls = createBoundaries(false);
+
+    for (final wall in localWalls) {
+      add(wall);
+      localWorldElements.add(wall);
+    }
+
+    for (final wall in remoteWalls) {
+      add(wall);
+      remoteWorldElements.add(wall);
+    }
 
     // Setup local team components (left side)
     await setupLocalTeam();
@@ -102,8 +136,15 @@ class SplitScreenLevelPage extends DecoratedWorld
       gameRef.lslService!.remoteTeamStateStream.listen((remoteState) {
         updateRemoteTeam(remoteState);
       });
+      gameRef.lslService!.remotePlayerInputStream.listen((input) {
+        // Handle remote player input if needed
+        Log.log.fine('Remote player input: $input');
+        updateRemoteTeamByInput(input);
+      });
     }
 
+    debugText.text =
+        'Debug: Setup complete. L paddle: ${localPaddle?.position}, R paddle: ${remotePaddle?.position}';
     Log.log.fine('SplitScreenLevelPage onLoad completed');
 
     return super.onLoad();
@@ -111,16 +152,10 @@ class SplitScreenLevelPage extends DecoratedWorld
 
   Future<void> setupLocalTeam() async {
     Log.log.fine('Setting up local team');
-    final visibleRect = gameRef.camera.visibleWorldRect;
-    final worldWidth = visibleRect.width;
-    final worldHeight = visibleRect.height;
-    final halfScreenWidth = worldWidth / 2;
+    final leftCenter = worldWidth * 0.25; // 1/4 of the way across
 
-    // Adjust positions for LEFT side
-    final leftCenter = worldWidth / 4; // 1/4 of the way across the screen
-
-    // Ball - centered on the left side
-    final ballPos = Vector2(leftCenter, worldHeight / 2);
+    // Ball - centered on the left side horizontally
+    final ballPos = Vector2(leftCenter, localTeamState.ballPosition.y);
     Log.log.fine('Local ball position: $ballPos');
 
     localBall = Ball(
@@ -129,13 +164,12 @@ class SplitScreenLevelPage extends DecoratedWorld
       pos: ballPos,
     );
 
-    // Paddle - place it at 80% down the screen
-    final paddleY = worldHeight * 0.8;
+    // Paddle - place it below the ball
+    final paddleY = localTeamState.paddlePosition.y;
     final paddleWidth = 10.0 * Config.ballRadius;
     final paddleHeight = 1.0;
 
     final paddlePos1 = Vector2(leftCenter - paddleWidth / 2, paddleY);
-
     final paddlePos2 = Vector2(
       leftCenter + paddleWidth / 2,
       paddleY + paddleHeight,
@@ -144,39 +178,33 @@ class SplitScreenLevelPage extends DecoratedWorld
     Log.log.fine('Local paddle from $paddlePos1 to $paddlePos2');
     localPaddle = Paddle(paddlePos1, paddlePos2);
 
-    // Target - toward the top of the screen
+    // Target - above the paddle
     final targetPos = Vector2(leftCenter, worldHeight * 0.2);
     final target = Target(
       Config.ballRadius * 3,
       targetPos,
       paint: Paint()..color = const Color(0xFF00FF00),
     );
-
-    // Create walls for left side
-    final walls = createBoundaries(true, halfScreenWidth);
-
-    // Add all local components
-    add(localBall!);
-    add(localPaddle!);
+    localWorldElements.add(target);
     add(target);
 
-    for (final wall in walls) {
-      add(wall);
-    }
+    // Add ball and paddle to the world
+    add(localBall!);
+    add(localPaddle!);
+
+    // Paddle isn't initialized yet
+    // Log.log.fine(
+    //   'Local team setup complete. Paddle at ${localPaddle!.position}',
+    // );
+    debugText.text = 'Local paddle added at: ${paddlePos1} to ${paddlePos2}';
   }
 
   Future<void> setupRemoteTeam() async {
     Log.log.fine('Setting up remote team');
-    final visibleRect = gameRef.camera.visibleWorldRect;
-    final worldWidth = visibleRect.width;
-    final worldHeight = visibleRect.height;
-    final halfScreenWidth = worldWidth / 2;
+    final rightCenter = worldWidth * 0.75; // 3/4 of the way across
 
-    // Adjust positions for RIGHT side
-    final rightCenter = 3 * worldWidth / 4; // 3/4 of the way across the screen
-
-    // Ball - centered on the right side
-    final ballPos = Vector2(rightCenter, worldHeight / 2);
+    // Ball - centered on the right side horizontally
+    final ballPos = Vector2(rightCenter, remoteTeamState.ballPosition.y);
     Log.log.fine('Remote ball position: $ballPos');
 
     remoteBall = Ball(
@@ -185,13 +213,12 @@ class SplitScreenLevelPage extends DecoratedWorld
       pos: ballPos,
     );
 
-    // Paddle - place it at 80% down the screen
-    final paddleY = worldHeight * 0.8;
+    // Paddle - place it below the ball
+    final paddleY = remoteTeamState.paddlePosition.y;
     final paddleWidth = 10.0 * Config.ballRadius;
     final paddleHeight = 1.0;
 
     final paddlePos1 = Vector2(rightCenter - paddleWidth / 2, paddleY);
-
     final paddlePos2 = Vector2(
       rightCenter + paddleWidth / 2,
       paddleY + paddleHeight,
@@ -200,40 +227,38 @@ class SplitScreenLevelPage extends DecoratedWorld
     Log.log.fine('Remote paddle from $paddlePos1 to $paddlePos2');
     remotePaddle = Paddle(paddlePos1, paddlePos2);
 
-    // Target - toward the top of the screen
+    // Target - above the paddle
     final targetPos = Vector2(rightCenter, worldHeight * 0.2);
     final target = Target(
       Config.ballRadius * 3,
       targetPos,
       paint: Paint()..color = const Color(0xFFFF9900),
     );
-
-    // Create walls for right side
-    final walls = createBoundaries(false, halfScreenWidth);
-
-    // Add all remote components
-    add(remoteBall!);
-    add(remotePaddle!);
+    remoteWorldElements.add(target);
     add(target);
 
-    for (final wall in walls) {
-      add(wall);
-    }
+    // Add ball and paddle to the world
+    add(remoteBall!);
+    add(remotePaddle!);
+
+    // Paddle isn't initialized yet
+    // Log.log.fine(
+    //   'Remote team setup complete. Paddle at ${remotePaddle!.position}',
+    // );
   }
 
-  List<Component> createBoundaries(bool isLocalTeam, double halfScreenWidth) {
-    final visibleRect = gameRef.camera.visibleWorldRect;
-    final height = visibleRect.height;
-    final width = halfScreenWidth;
+  List<BodyComponent<RiseTogetherGame>> createBoundaries(bool isLocalTeam) {
+    final height = worldHeight;
+    final width = worldWidth / 2;
 
-    // Calculate the starting X position
-    final double startX = isLocalTeam ? 0 : halfScreenWidth;
+    // Calculate the starting X position based on team
+    final double startX = isLocalTeam ? 0 : width;
     final double endX = startX + width;
 
-    // Create boundary points using full height
-    final topLeft = Vector2(startX, 0);
+    // Create boundary points
+    final topLeft = Vector2(startX, 0); // Top of screen
     final topRight = Vector2(endX, 0);
-    final bottomRight = Vector2(endX, height);
+    final bottomRight = Vector2(endX, height); // Bottom of screen
     final bottomLeft = Vector2(startX, height);
 
     // Use different colors for local and remote teams
@@ -249,43 +274,93 @@ class SplitScreenLevelPage extends DecoratedWorld
     );
 
     return [
-      Wall(topLeft, topRight, paint: paint),
-      Wall(topRight, bottomRight, paint: paint),
-      Wall(bottomRight, bottomLeft, paint: paint),
-      Wall(bottomLeft, topLeft, paint: paint),
+      Wall(topLeft, topRight, paint: paint), // Top wall
+      Wall(topRight, bottomRight, paint: paint), // Right wall
+      Wall(bottomRight, bottomLeft, paint: paint), // Bottom wall
+      Wall(bottomLeft, topLeft, paint: paint), // Left wall
     ];
+  }
+
+  void handleRemoteTap(String input) {
+    // Handle remote tap input
+    if (input == "left") {
+      remotePaddle!.pressLeft();
+      remoteTeamState.playerInputs[gameRef.participantId] = "left";
+    } else if (input == "right") {
+      remotePaddle!.pressRight();
+      remoteTeamState.playerInputs[gameRef.participantId] = "right";
+    } else {
+      remotePaddle!.releaseLeft();
+      remotePaddle!.releaseRight();
+      remoteTeamState.playerInputs[gameRef.participantId] = "none";
+    }
+  }
+
+  void handleTap(Vector2 tapPos) {
+    debugText.text = 'Tap at: $tapPos';
+
+    Log.log.fine('Tap position: $tapPos, worldWidth: $worldWidth');
+
+    // Check if we're on the left half of the screen
+    if (tapPos.x < worldWidth / 2) {
+      final leftQuarter = worldWidth / 4;
+
+      // Determine if left or right side of the paddle
+      if (tapPos.x < leftQuarter) {
+        Log.log.fine('Pressing local paddle LEFT');
+        localPaddle!.pressLeft();
+        localTeamState.playerInputs[gameRef.participantId] = "left";
+        gameRef.lslService?.sendPlayerInput("left");
+        debugText.text = 'Left paddle LEFT pressed';
+      } else {
+        Log.log.fine('Pressing local paddle RIGHT');
+        localPaddle!.pressRight();
+        localTeamState.playerInputs[gameRef.participantId] = "right";
+        gameRef.lslService?.sendPlayerInput("right");
+        debugText.text = 'Left paddle RIGHT pressed';
+      }
+    }
   }
 
   @override
   void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
     if (localPaddle == null) return;
 
     try {
       // Get tap position in world coordinates
       final tapPos = gameRef.screenToWorld(event.canvasPosition);
-      final worldWidth = gameRef.camera.visibleWorldRect.width;
-
-      Log.log.fine('Tap position: $tapPos, worldWidth: $worldWidth');
-
-      // Check if we're on the left half of the screen
-      if (tapPos.x < worldWidth / 2) {
-        final leftQuarter = worldWidth / 4;
-
-        // Determine if left or right side of the paddle
-        if (tapPos.x < leftQuarter) {
-          Log.log.fine('Pressing local paddle LEFT');
-          localPaddle!.pressLeft();
-          localTeamState.playerInputs[gameRef.participantId] = "left";
-          gameRef.lslService?.sendPlayerInput("left");
-        } else {
-          Log.log.fine('Pressing local paddle RIGHT');
-          localPaddle!.pressRight();
-          localTeamState.playerInputs[gameRef.participantId] = "right";
-          gameRef.lslService?.sendPlayerInput("right");
-        }
-      }
+      handleTap(tapPos);
     } catch (e) {
       Log.log.warning('Error in onTapDown: $e');
+      debugText.text = 'Error: $e';
+    }
+  }
+
+  @override
+  void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
+    if (localPaddle == null) return;
+
+    try {
+      // Get drag position in world coordinates
+      final dragPos = gameRef.screenToWorld(event.canvasPosition);
+      handleTap(dragPos);
+    } catch (e) {
+      Log.log.warning('Error in onDragStart: $e');
+      debugText.text = 'Error: $e';
+    }
+  }
+
+  void updateRemoteTeamByInput(String input) {
+    // Update remote team state based on input
+    if (input == "left") {
+      remotePaddle!.pressLeft();
+    } else if (input == "right") {
+      remotePaddle!.pressRight();
+    } else {
+      remotePaddle!.releaseLeft();
+      remotePaddle!.releaseRight();
     }
   }
 
@@ -296,25 +371,49 @@ class SplitScreenLevelPage extends DecoratedWorld
     // Only update remote components if fully initialized
     if (remotePaddle != null && remoteBall != null) {
       try {
-        // Adjust positions for split screen
-        final worldWidth = gameRef.camera.visibleWorldRect.width;
-        final rightCenter = 3 * worldWidth / 4;
-
-        // Calculate offset from center to maintain relative positioning
-        final offsetX = rightCenter - newState.ballPosition.x;
-
-        // Update ball position
-        final adjustedBallPos = Vector2(rightCenter, newState.ballPosition.y);
-        remoteBall!.body.setTransform(adjustedBallPos, remoteBall!.body.angle);
-
         // Update paddle angle
         remotePaddle!.body.setTransform(
           remotePaddle!.body.position,
           newState.paddleAngle,
         );
+
+        // Update world elements based on remote team's distance
+        updateRemoteWorldElements(newState.distance);
       } catch (e) {
         Log.log.warning('Error updating remote team: $e');
       }
+    }
+  }
+
+  void updateLocalWorldElements(double distanceIncrement) {
+    for (final element in localWorldElements) {
+      if (element is Target) {
+        // Move target down based on distance
+        element.body.setTransform(
+          Vector2(
+            element.body.position.x,
+            element.body.position.y + distanceIncrement,
+          ),
+          element.body.angle,
+        );
+      }
+      // Note: We don't move walls to maintain the play area
+    }
+  }
+
+  void updateRemoteWorldElements(double remoteDistance) {
+    for (final element in remoteWorldElements) {
+      if (element is Target) {
+        // Move target down based on remote team's distance
+        element.body.setTransform(
+          Vector2(
+            element.body.position.x,
+            element.body.position.y + remoteDistance,
+          ),
+          element.body.angle,
+        );
+      }
+      // Note: We don't move walls to maintain the play area
     }
   }
 
@@ -325,11 +424,28 @@ class SplitScreenLevelPage extends DecoratedWorld
     // Update local team state
     try {
       if (localBall != null && localPaddle != null) {
+        // Update ball and paddle positions in the state
         localTeamState.ballPosition = localBall!.position;
         localTeamState.paddleAngle = localPaddle!.body.angle;
 
-        // Increment distance (this would be your actual game logic)
-        localTeamState.distance += dt * 2;
+        // Debug paddle positions
+        debugText.text =
+            'L paddle: ${localPaddle!.position.y.toStringAsFixed(1)}, '
+            'R paddle: ${remotePaddle?.position.y.toStringAsFixed(1) ?? "N/A"}';
+
+        // Calculate the distance traveled based on paddle's lift (ball's Y velocity)
+        double yVelocity = localBall!.body.linearVelocity.y;
+
+        // If the ball is rising (negative Y velocity in Forge2D), increase distance
+        if (yVelocity < 0) {
+          // Convert velocity to distance increment
+          double distanceIncrement =
+              -yVelocity * dt * 0.1; // Scale factor for visibility
+          localTeamState.distance += distanceIncrement;
+
+          // Move world elements down to simulate rising
+          updateLocalWorldElements(distanceIncrement);
+        }
 
         // Send local team state updates through LSL
         gameRef.lslService?.sendTeamState(localTeamState);
@@ -341,21 +457,55 @@ class SplitScreenLevelPage extends DecoratedWorld
       scoreText.text = 'Local: ${localDistance}m | Remote: ${remoteDistance}m';
     } catch (e) {
       Log.log.warning('Error in update: $e');
+      debugText.text = 'Update error: $e';
     }
+  }
+
+  void handleTapUp() {
+    // Release both sides of paddle on tap up
+    localPaddle!.releaseLeft();
+    localPaddle!.releaseRight();
+    localTeamState.playerInputs[gameRef.participantId] = "none";
+    gameRef.lslService?.sendPlayerInput("none");
+    debugText.text = 'Paddle released';
   }
 
   @override
   void onTapUp(TapUpEvent event) {
+    super.onTapUp(event);
     if (localPaddle == null) return;
 
     try {
-      // Release both sides of paddle on tap up
-      localPaddle!.releaseLeft();
-      localPaddle!.releaseRight();
-      localTeamState.playerInputs[gameRef.participantId] = "none";
-      gameRef.lslService?.sendPlayerInput("none");
+      handleTapUp();
     } catch (e) {
       Log.log.warning('Error in onTapUp: $e');
+      debugText.text = 'Release error: $e';
+    }
+  }
+
+  @override
+  void onDragEnd(DragEndEvent event) {
+    super.onDragEnd(event);
+    if (localPaddle == null) return;
+
+    try {
+      handleTapUp();
+    } catch (e) {
+      Log.log.warning('Error in onDragEnd: $e');
+      debugText.text = 'Release error: $e';
+    }
+  }
+
+  @override
+  void onDragCancel(DragCancelEvent event) {
+    super.onDragCancel(event);
+    if (localPaddle == null) return;
+
+    try {
+      handleTapUp();
+    } catch (e) {
+      Log.log.warning('Error in onDragCancel: $e');
+      debugText.text = 'Release error: $e';
     }
   }
 }

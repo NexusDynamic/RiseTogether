@@ -27,12 +27,16 @@ class LSLService {
   late LSLIsolatedOutlet _teamStateOutlet;
 
   // LSL inlets - data we receive
-  Map<String, LSLIsolatedInlet> _remoteTeamInlets = {};
+  final Map<String, LSLIsolatedInlet> _remoteTeamInlets = {};
 
   // Stream controllers for app-wide events
   final _remoteTeamStateController = StreamController<TeamState>.broadcast();
   Stream<TeamState> get remoteTeamStateStream =>
       _remoteTeamStateController.stream;
+
+  final _remotePlayerInputController = StreamController<String>.broadcast();
+  Stream<String> get remotePlayerInputStream =>
+      _remotePlayerInputController.stream;
 
   LSLService({required this.participantId, required this.teamId});
 
@@ -44,7 +48,7 @@ class LSLService {
       channelFormat: LSLChannelFormat.string, // "left", "right", "none"
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
-      sourceId: 'player-$participantId-$teamId',
+      sourceId: '$teamId-$participantId-player',
     );
     _playerInputOutlet = await LSL.createOutlet(
       streamInfo: _playerInputStreamInfo,
@@ -57,7 +61,7 @@ class LSLService {
       channelFormat: LSLChannelFormat.string, // JSON encoded team state
       channelCount: 1,
       sampleRate: LSL_IRREGULAR_RATE,
-      sourceId: 'team-$teamId-$participantId-$teamId',
+      sourceId: '$teamId-$participantId-team',
     );
     _teamStateOutlet = await LSL.createOutlet(streamInfo: _teamStateStreamInfo);
 
@@ -93,16 +97,27 @@ class LSLService {
 
       for (final stream in streams) {
         // Only look for team state streams that aren't our own team
-        if (stream.streamType == kTeamStateStreamType &&
-            !stream.streamName.contains(teamId) &&
-            !_remoteTeamInlets.containsKey(stream.streamName)) {
+        if (!stream.sourceId.startsWith(teamId) &&
+            !_remoteTeamInlets.containsKey(stream.sourceId)) {
           _log.info('Found remote team stream: ${stream.streamName}');
 
           final inlet = await LSL.createInlet(streamInfo: stream);
-          _remoteTeamInlets[stream.streamName] = inlet;
+          _remoteTeamInlets[stream.sourceId] = inlet;
 
           // Start polling this inlet
-          _startPollingInlet(stream.streamName, inlet);
+          if (stream.streamName.startsWith(kPlayerInputStreamType)) {
+            _startPollingInlet(stream.streamName, inlet, (LSLSample s) async {
+              final input = s[0] as String;
+              _remotePlayerInputController.add(input);
+            });
+          } else if (stream.streamName.startsWith(kTeamStateStreamType)) {
+            _startPollingInlet(stream.streamName, inlet, (LSLSample s) async {
+              final teamState = TeamState.decode(s[0]);
+              _remoteTeamStateController.add(teamState);
+            });
+          } else {
+            _log.warning('Unknown stream type: ${stream.streamName}');
+          }
         }
       }
     } catch (e) {
@@ -110,15 +125,16 @@ class LSLService {
     }
   }
 
-  void _startPollingInlet(String streamName, LSLIsolatedInlet inlet) {
-    Timer.periodic(const Duration(milliseconds: 50), (timer) async {
+  void _startPollingInlet(
+    String streamName,
+    LSLIsolatedInlet inlet,
+    Future<void> Function(LSLSample s) consume,
+  ) {
+    Timer.periodic(const Duration(milliseconds: 1), (timer) async {
       try {
         final sample = await inlet.pullSample();
-        if (sample.isNotEmpty &&
-            sample[0] is String &&
-            sample[0] != "discovery") {
-          final teamState = TeamState.decode(sample[0]);
-          _remoteTeamStateController.add(teamState);
+        if (sample.timestamp != 0) {
+          consume(sample);
         }
       } catch (e) {
         _log.warning('Error pulling sample from $streamName: $e');

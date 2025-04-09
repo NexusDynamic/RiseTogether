@@ -52,7 +52,7 @@ class RiseTogetherGame extends Forge2DGame
   @override
   Future<void> onLoad() async {
     // Set the time scale to 1.0 (normal speed)
-    camera.viewfinder.anchor = Anchor.center;
+    camera.viewfinder.anchor = Anchor.topLeft;
     await super.onLoad();
 
     // Initialize multicast for Android
@@ -400,9 +400,6 @@ class LevelPage extends DecoratedWorld
     if (game.lslService == null) {
       return;
     }
-
-    // Use the LSL service methods instead of direct inlet access
-    // This method would need to be adapted to use the new LSLService
   }
 
   Future<void> pushSampleAndUpdate(int value) async {
@@ -515,8 +512,13 @@ class DecoratedWorld extends Forge2DWorld with HasTimeScale {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
   await EasyLocalization.ensureInitialized();
   await FullScreen.ensureInitialized();
+
   FullScreen.setFullScreen(true);
   Logger.root.level = Level.ALL; // defaults to Level.INFO
   Logger.root.onRecord.listen((record) {

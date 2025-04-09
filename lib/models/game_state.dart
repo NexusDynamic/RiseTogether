@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flame/components.dart';
-import 'package:flame_forge2d/flame_forge2d.dart' hide Vector2;
 
 class TeamState {
   final String teamId;
