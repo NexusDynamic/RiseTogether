@@ -20,6 +20,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 // Log singleton
 class Log {
@@ -518,6 +519,7 @@ void main() async {
   ]);
   await EasyLocalization.ensureInitialized();
   await FullScreen.ensureInitialized();
+  await WakelockPlus.enable();
 
   FullScreen.setFullScreen(true);
   Logger.root.level = Level.ALL; // defaults to Level.INFO
@@ -532,6 +534,7 @@ void main() async {
       fallbackLocale: Locale('en'),
       startLocale: Locale('da'),
       useOnlyLangCode: true,
+      useFallbackTranslations: true,
       child: App(),
     ),
   );
