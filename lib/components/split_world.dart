@@ -196,7 +196,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     // Log.log.fine(
     //   'Local team setup complete. Paddle at ${localPaddle!.position}',
     // );
-    debugText.text = 'Local paddle added at: ${paddlePos1} to ${paddlePos2}';
+    debugText.text = 'Local paddle added at: $paddlePos1 to $paddlePos2';
   }
 
   Future<void> setupRemoteTeam() async {
