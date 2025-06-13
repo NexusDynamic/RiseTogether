@@ -3,10 +3,6 @@ import 'dart:async';
 import 'package:liblsl/lsl.dart';
 import 'package:logging/logging.dart';
 import '../models/game_state.dart';
-// ignore: implementation_imports @TODO: export this in the library
-import 'package:liblsl/src/lsl/isolated_outlet.dart' show LSLIsolatedOutlet;
-// ignore: implementation_imports @TODO: export this in the library
-import 'package:liblsl/src/lsl/isolated_inlet.dart' show LSLIsolatedInlet;
 
 class LSLService {
   static final Logger _log = Logger('LSLService');
@@ -21,13 +17,13 @@ class LSLService {
 
   // LSL outlets - data we send
   late LSLStreamInfo _playerInputStreamInfo;
-  late LSLIsolatedOutlet _playerInputOutlet;
+  late LSLOutlet _playerInputOutlet;
 
   late LSLStreamInfo _teamStateStreamInfo;
-  late LSLIsolatedOutlet _teamStateOutlet;
+  late LSLOutlet _teamStateOutlet;
 
   // LSL inlets - data we receive
-  final Map<String, LSLIsolatedInlet> _remoteTeamInlets = {};
+  final Map<String, LSLInlet> _remoteTeamInlets = {};
 
   // Stream controllers for app-wide events
   final _remoteTeamStateController = StreamController<TeamState>.broadcast();
@@ -127,7 +123,7 @@ class LSLService {
 
   void _startPollingInlet(
     String streamName,
-    LSLIsolatedInlet inlet,
+    LSLInlet inlet,
     Future<void> Function(LSLSample s) consume,
   ) {
     Timer.periodic(const Duration(milliseconds: 1), (timer) async {

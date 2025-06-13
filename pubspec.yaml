@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.2.0+20250407
+version: 0.3.0
 
 environment:
   sdk: ^3.7.0
@@ -33,15 +33,15 @@ dependencies:
 
   # liblsl: ^0.3.0
   # temp fir devel
-  liblsl: ^0.5.1
+  liblsl: ^0.8.0
   cupertino_icons: ^1.0.8
-  flame_forge2d: ^0.19.0
+  flame_forge2d: ^0.19.0+2
   # flame_forge2d:
   #   git:
   #     url: https://github.com/zeyus/flame.git
   #     ref: feat/Vector2_32bit
   #     path: packages/flame_forge2d
-  flame: ^1.25.0
+  flame: ^1.29.0
   # flame:
   #   git:
   #     url: https://github.com/zeyus/flame.git
@@ -64,7 +64,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 # dependency_overrides:
 #   material_color_utilities: ^0.12.0
