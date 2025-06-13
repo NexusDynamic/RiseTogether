@@ -3,7 +3,6 @@ import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flame/rendering.dart';
 import 'package:flame_forge2d/flame_forge2d.dart' hide Vector2;
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'components/ball.dart';
 import 'components/wall.dart';
@@ -21,6 +20,7 @@ import 'dart:math';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
 
 // Log singleton
 class Log {
@@ -47,7 +47,7 @@ class RiseTogetherGame extends Forge2DGame
   late final RouterComponent router;
   String participantId = Util.getRandomString(10);
   String teamId = "team1"; // Default team, can be changed
-  MethodChannel? rtNetworkingChannel;
+  FlutterMulticastLock multicastLock = FlutterMulticastLock();
   LSLService? lslService;
 
   @override
@@ -57,19 +57,14 @@ class RiseTogetherGame extends Forge2DGame
     await super.onLoad();
 
     // Initialize multicast for Android
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      if (rtNetworkingChannel == null) {
-        rtNetworkingChannel = MethodChannel(
-          'com.zeyus.RiseTogether/Networking',
-        );
-        try {
-          await rtNetworkingChannel!.invokeMethod('acquireMulticastLock');
+    multicastLock
+        .acquireMulticastLock()
+        .then((value) {
           Log.log.fine('acquireMulticastLock: success');
-        } on PlatformException catch (e) {
-          Log.log.severe('Failed to acquire multicast lock: ${e.message}');
-        }
-      }
-    }
+        })
+        .catchError((error) {
+          Log.log.severe('Failed to acquire multicast lock: $error');
+        });
 
     // Initialize LSL service
     lslService = LSLService(participantId: participantId, teamId: teamId);
@@ -100,12 +95,15 @@ class RiseTogetherGame extends Forge2DGame
     // Clean up resources
     lslService?.dispose();
 
-    try {
-      rtNetworkingChannel?.invokeMethod('releaseMulticastLock');
-      Log.log.fine('releaseMulticastLock: success');
-    } on PlatformException catch (e) {
-      Log.log.severe('Failed to release multicast lock: ${e.message}');
-    }
+    multicastLock
+        .releaseMulticastLock()
+        .then((value) {
+          Log.log.fine('releaseMulticastLock: success');
+        })
+        .catchError((error) {
+          Log.log.severe('Failed to release multicast lock: $error');
+        });
+    Log.log.fine('RiseTogetherGame disposed');
     super.onDispose();
   }
 
@@ -319,7 +317,7 @@ class RoundedButton extends PositionComponent with TapCallbacks {
 }
 
 class LevelPage extends DecoratedWorld
-    with HasGameRef<RiseTogetherGame>, TapCallbacks, DragCallbacks {
+    with HasGameReference<RiseTogetherGame>, TapCallbacks, DragCallbacks {
   late Rect visibleRect;
   late Vector2 ballPos;
   late Vector2 paddlePos1;

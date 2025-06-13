@@ -12,7 +12,7 @@ import 'package:RiseTogether/models/game_state.dart';
 
 /// Main world container for split screen - extends DecoratedWorld to be compatible with WorldRoute
 class SplitScreenLevelPage extends DecoratedWorld
-    with HasGameRef<RiseTogetherGame>, TapCallbacks, DragCallbacks {
+    with HasGameReference<RiseTogetherGame>, TapCallbacks, DragCallbacks {
   final String localTeamId;
   final String remoteTeamId;
 
@@ -47,10 +47,10 @@ class SplitScreenLevelPage extends DecoratedWorld
     Log.log.fine('SplitScreenLevelPage onLoad started');
 
     // Force reset camera position to origin before getting dimensions
-    gameRef.camera.viewfinder.position = Vector2.zero();
+    game.camera.viewfinder.position = Vector2.zero();
 
     // Get the visible world rectangle AFTER resetting camera
-    final visibleRect = gameRef.camera.visibleWorldRect;
+    final visibleRect = game.camera.visibleWorldRect;
     worldWidth = visibleRect.width;
     worldHeight = visibleRect.height;
     halfScreenWidth = worldWidth / 2;
@@ -64,7 +64,7 @@ class SplitScreenLevelPage extends DecoratedWorld
         style: const TextStyle(fontSize: 16, color: Color(0xFFC8FFF5)),
       ),
       anchor: Anchor.topCenter,
-      position: Vector2(gameRef.camera.viewport.size.x / 2, 10),
+      position: Vector2(game.camera.viewport.size.x / 2, 10),
     );
 
     scoreText = TextComponent(
@@ -73,7 +73,7 @@ class SplitScreenLevelPage extends DecoratedWorld
         style: const TextStyle(fontSize: 20, color: Color(0xFFFFFF00)),
       ),
       anchor: Anchor.topCenter,
-      position: Vector2(gameRef.camera.viewport.size.x / 2, 30),
+      position: Vector2(game.camera.viewport.size.x / 2, 30),
     );
 
     debugText = TextComponent(
@@ -86,9 +86,9 @@ class SplitScreenLevelPage extends DecoratedWorld
     );
 
     // Add UI components to the viewport
-    gameRef.camera.viewport.add(statusText);
-    gameRef.camera.viewport.add(scoreText);
-    gameRef.camera.viewport.add(debugText);
+    game.camera.viewport.add(statusText);
+    game.camera.viewport.add(scoreText);
+    game.camera.viewport.add(debugText);
 
     // Set initial ball and paddle positions
     final ballPositionY = worldHeight * 0.6; // Lower to ensure visibility
@@ -109,7 +109,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     );
 
     // Load asset
-    await gameRef.loadSprite('ball.png');
+    await game.loadSprite('ball.png');
 
     // First add walls to ensure they're behind other elements
     final localWalls = createBoundaries(true);
@@ -132,11 +132,11 @@ class SplitScreenLevelPage extends DecoratedWorld
     await setupRemoteTeam();
 
     // Subscribe to remote team updates via LSL
-    if (gameRef.lslService != null) {
-      gameRef.lslService!.remoteTeamStateStream.listen((remoteState) {
+    if (game.lslService != null) {
+      game.lslService!.remoteTeamStateStream.listen((remoteState) {
         updateRemoteTeam(remoteState);
       });
-      gameRef.lslService!.remotePlayerInputStream.listen((input) {
+      game.lslService!.remotePlayerInputStream.listen((input) {
         // Handle remote player input if needed
         Log.log.fine('Remote player input: $input');
         updateRemoteTeamByInput(input);
@@ -285,14 +285,14 @@ class SplitScreenLevelPage extends DecoratedWorld
     // Handle remote tap input
     if (input == "left") {
       remotePaddle!.pressLeft();
-      remoteTeamState.playerInputs[gameRef.participantId] = "left";
+      remoteTeamState.playerInputs[game.participantId] = "left";
     } else if (input == "right") {
       remotePaddle!.pressRight();
-      remoteTeamState.playerInputs[gameRef.participantId] = "right";
+      remoteTeamState.playerInputs[game.participantId] = "right";
     } else {
       remotePaddle!.releaseLeft();
       remotePaddle!.releaseRight();
-      remoteTeamState.playerInputs[gameRef.participantId] = "none";
+      remoteTeamState.playerInputs[game.participantId] = "none";
     }
   }
 
@@ -309,14 +309,14 @@ class SplitScreenLevelPage extends DecoratedWorld
       if (tapPos.x < leftQuarter) {
         Log.log.fine('Pressing local paddle LEFT');
         localPaddle!.pressLeft();
-        localTeamState.playerInputs[gameRef.participantId] = "left";
-        gameRef.lslService?.sendPlayerInput("left");
+        localTeamState.playerInputs[game.participantId] = "left";
+        game.lslService?.sendPlayerInput("left");
         debugText.text = 'Left paddle LEFT pressed';
       } else {
         Log.log.fine('Pressing local paddle RIGHT');
         localPaddle!.pressRight();
-        localTeamState.playerInputs[gameRef.participantId] = "right";
-        gameRef.lslService?.sendPlayerInput("right");
+        localTeamState.playerInputs[game.participantId] = "right";
+        game.lslService?.sendPlayerInput("right");
         debugText.text = 'Left paddle RIGHT pressed';
       }
     }
@@ -329,7 +329,7 @@ class SplitScreenLevelPage extends DecoratedWorld
 
     try {
       // Get tap position in world coordinates
-      final tapPos = gameRef.screenToWorld(event.canvasPosition);
+      final tapPos = game.screenToWorld(event.canvasPosition);
       handleTap(tapPos);
     } catch (e) {
       Log.log.warning('Error in onTapDown: $e');
@@ -344,7 +344,7 @@ class SplitScreenLevelPage extends DecoratedWorld
 
     try {
       // Get drag position in world coordinates
-      final dragPos = gameRef.screenToWorld(event.canvasPosition);
+      final dragPos = game.screenToWorld(event.canvasPosition);
       handleTap(dragPos);
     } catch (e) {
       Log.log.warning('Error in onDragStart: $e');
@@ -448,7 +448,7 @@ class SplitScreenLevelPage extends DecoratedWorld
         }
 
         // Send local team state updates through LSL
-        gameRef.lslService?.sendTeamState(localTeamState);
+        game.lslService?.sendTeamState(localTeamState);
       }
 
       // Update score display
@@ -465,8 +465,8 @@ class SplitScreenLevelPage extends DecoratedWorld
     // Release both sides of paddle on tap up
     localPaddle!.releaseLeft();
     localPaddle!.releaseRight();
-    localTeamState.playerInputs[gameRef.participantId] = "none";
-    gameRef.lslService?.sendPlayerInput("none");
+    localTeamState.playerInputs[game.participantId] = "none";
+    game.lslService?.sendPlayerInput("none");
     debugText.text = 'Paddle released';
   }
 
