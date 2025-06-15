@@ -4,6 +4,7 @@ import 'package:flame/events.dart';
 import 'package:flame/rendering.dart';
 import 'package:flame_forge2d/flame_forge2d.dart' hide Vector2;
 import 'package:flutter/services.dart';
+import 'package:flutter_refresh_rate_control/flutter_refresh_rate_control.dart';
 import 'components/ball.dart';
 import 'components/wall.dart';
 import 'components/paddle.dart';
@@ -48,6 +49,8 @@ class RiseTogetherGame extends Forge2DGame
   String participantId = Util.getRandomString(10);
   String teamId = "team1"; // Default team, can be changed
   FlutterMulticastLock multicastLock = FlutterMulticastLock();
+  final refreshRateControl = FlutterRefreshRateControl();
+
   LSLService? lslService;
 
   @override
@@ -55,6 +58,18 @@ class RiseTogetherGame extends Forge2DGame
     // Set the time scale to 1.0 (normal speed)
     camera.viewfinder.anchor = Anchor.topLeft;
     await super.onLoad();
+
+    // Request high refresh rate
+    try {
+      bool success = await refreshRateControl.requestHighRefreshRate();
+      if (success) {
+        Log.log.fine('High refresh rate requested successfully.');
+      } else {
+        Log.log.warning('Failed to enable high refresh rate');
+      }
+    } catch (e) {
+      Log.log.severe('Error: $e');
+    }
 
     // Initialize multicast for Android
     multicastLock
@@ -94,6 +109,12 @@ class RiseTogetherGame extends Forge2DGame
   void onDispose() {
     // Clean up resources
     lslService?.dispose();
+
+    try {
+      refreshRateControl.stopHighRefreshRate();
+    } catch (e) {
+      Log.log.severe('Error: $e');
+    }
 
     multicastLock
         .releaseMulticastLock()
