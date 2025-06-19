@@ -1,4 +1,4 @@
-import 'package:RiseTogether/main.dart';
+import 'package:rise_together/main.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 
 /// Target component.
