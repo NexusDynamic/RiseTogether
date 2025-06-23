@@ -3,16 +3,7 @@
 /// =============================================================================
 ///
 /// A comprehensive, type-safe settings management framework for Flutter/Dart
-/// applications. This framework provides:
-///
-/// • Type-safe settings with compile-time validation
-/// • Change notifications via streams
-/// • Input validation with custom validators
-/// • Batch operations for performance
-/// • Reset functionality for individual settings or groups
-/// • Proper memory management with disposal methods
-/// • Namespaced storage to prevent key conflicts
-/// • Caching for improved performance
+/// applications.
 ///
 /// Usage Example:
 /// ```dart
