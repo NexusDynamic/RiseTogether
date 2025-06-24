@@ -179,6 +179,7 @@ void main() {
     group('SettingsGroup', () {
       test('should create group with multiple settings', () {
         final group = SettingsGroup(
+          key: 'test_group',
           items: [
             BoolSetting(key: 'setting1', defaultValue: true),
             IntSetting(key: 'setting2', defaultValue: 42),
@@ -194,7 +195,10 @@ void main() {
         final boolSetting = BoolSetting(key: 'enabled', defaultValue: true);
         final intSetting = IntSetting(key: 'count', defaultValue: 5);
 
-        final group = SettingsGroup(items: [boolSetting, intSetting]);
+        final group = SettingsGroup(
+          key: 'access_test',
+          items: [boolSetting, intSetting],
+        );
 
         expect(group['enabled'], equals(boolSetting));
         expect(group['count'], equals(intSetting));
@@ -202,6 +206,7 @@ void main() {
 
       test('should be null if settingsgroup does not exist', () {
         final group = SettingsGroup(
+          key: 'null_test',
           items: [BoolSetting(key: 'existing', defaultValue: true)],
         );
 
@@ -209,18 +214,16 @@ void main() {
       });
     });
 
-    group('SettingsBase Integration', () {
+    group('SettingsGroup Integration', () {
       test('should initialize and store default values', () async {
-        final gameSettings = SettingsBase.forTesting(
+        final gameSettings = SettingsGroup.forTesting(
           key: 'game',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'soundEnabled', defaultValue: true),
-              DoubleSetting(key: 'volume', defaultValue: 0.8),
-              IntSetting(key: 'maxRetries', defaultValue: 3),
-              StringSetting(key: 'difficulty', defaultValue: 'normal'),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'soundEnabled', defaultValue: true),
+            DoubleSetting(key: 'volume', defaultValue: 0.8),
+            IntSetting(key: 'maxRetries', defaultValue: 3),
+            StringSetting(key: 'difficulty', defaultValue: 'normal'),
+          ],
         );
 
         await gameSettings.readyFuture;
@@ -233,14 +236,12 @@ void main() {
       });
 
       test('should set and get values correctly', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'test',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'flag', defaultValue: false),
-              IntSetting(key: 'number', defaultValue: 0),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'flag', defaultValue: false),
+            IntSetting(key: 'number', defaultValue: 0),
+          ],
         );
 
         await settings.readyFuture;
@@ -253,17 +254,15 @@ void main() {
       });
 
       test('should validate values before setting', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'validation',
-          items: SettingsGroup(
-            items: [
-              IntSetting(
-                key: 'percentage',
-                defaultValue: 50,
-                validator: (value) => value >= 0 && value <= 100,
-              ),
-            ],
-          ),
+          items: [
+            IntSetting(
+              key: 'percentage',
+              defaultValue: 50,
+              validator: (value) => value >= 0 && value <= 100,
+            ),
+          ],
         );
 
         await settings.readyFuture;
@@ -282,17 +281,15 @@ void main() {
       test(
         'should prevent modification of non-configurable settings',
         () async {
-          final settings = SettingsBase.forTesting(
+          final settings = SettingsGroup.forTesting(
             key: 'system',
-            items: SettingsGroup(
-              items: [
-                BoolSetting(
-                  key: 'readonly',
-                  defaultValue: true,
-                  userConfigurable: false,
-                ),
-              ],
-            ),
+            items: [
+              BoolSetting(
+                key: 'readonly',
+                defaultValue: true,
+                userConfigurable: false,
+              ),
+            ],
           );
 
           await settings.readyFuture;
@@ -305,11 +302,9 @@ void main() {
       );
 
       test('should throw when accessing before ready', () {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'notready',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'test', defaultValue: true)],
-          ),
+          items: [BoolSetting(key: 'test', defaultValue: true)],
         );
 
         expect(
@@ -319,11 +314,9 @@ void main() {
       });
 
       test('should throw for non-existent settings', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'missing',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'exists', defaultValue: true)],
-          ),
+          items: [BoolSetting(key: 'exists', defaultValue: true)],
         );
 
         await settings.readyFuture;
@@ -335,11 +328,9 @@ void main() {
       });
 
       test('should reset individual setting to default', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'reset',
-          items: SettingsGroup(
-            items: [IntSetting(key: 'counter', defaultValue: 0)],
-          ),
+          items: [IntSetting(key: 'counter', defaultValue: 0)],
         );
 
         await settings.readyFuture;
@@ -354,15 +345,13 @@ void main() {
       });
 
       test('should reset all settings in group', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'resetall',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'flag', defaultValue: false),
-              IntSetting(key: 'number', defaultValue: 10),
-              StringSetting(key: 'text', defaultValue: 'default'),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'flag', defaultValue: false),
+            IntSetting(key: 'number', defaultValue: 10),
+            StringSetting(key: 'text', defaultValue: 'default'),
+          ],
         );
 
         await settings.readyFuture;
@@ -387,17 +376,15 @@ void main() {
       });
 
       test('should notify changes on setting streams', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'notify',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'notifiable', defaultValue: false)],
-          ),
+          items: [BoolSetting(key: 'notifiable', defaultValue: false)],
         );
 
         await settings.readyFuture;
 
         final events = <bool>[];
-        final subscription = settings.items['notifiable']!.stream.listen((
+        final subscription = settings['notifiable']!.stream.listen((
           value,
         ) {
           events.add(value as bool);
@@ -416,11 +403,9 @@ void main() {
 
     group('Concurrent Access and Thread Safety', () {
       test('should handle concurrent setting modifications', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'concurrent',
-          items: SettingsGroup(
-            items: [IntSetting(key: 'counter', defaultValue: 0)],
-          ),
+          items: [IntSetting(key: 'counter', defaultValue: 0)],
         );
 
         Settings.register(settings);
@@ -441,11 +426,9 @@ void main() {
       });
 
       test('should handle concurrent stream listeners', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'streams',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'flag', defaultValue: false)],
-          ),
+          items: [BoolSetting(key: 'flag', defaultValue: false)],
         );
 
         Settings.register(settings);
@@ -454,10 +437,10 @@ void main() {
         final events1 = <bool>[];
         final events2 = <bool>[];
 
-        final sub1 = settings.items['flag']!.stream.listen(
+        final sub1 = settings['flag']!.stream.listen(
           (value) => events1.add(value as bool),
         );
-        final sub2 = settings.items['flag']!.stream.listen(
+        final sub2 = settings['flag']!.stream.listen(
           (value) => events2.add(value as bool),
         );
 
@@ -477,11 +460,9 @@ void main() {
 
     group('Error Recovery and Edge Cases', () {
       test('should handle missing keys gracefully', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'missing',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'exists', defaultValue: true)],
-          ),
+          items: [BoolSetting(key: 'exists', defaultValue: true)],
         );
 
         Settings.register(settings);
@@ -499,11 +480,9 @@ void main() {
       });
 
       test('should handle type mismatches in storage (default)', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'typemismatch',
-          items: SettingsGroup(
-            items: [IntSetting(key: 'number', defaultValue: 42)],
-          ),
+          items: [IntSetting(key: 'number', defaultValue: 42)],
         );
 
         Settings.register(settings);
@@ -525,17 +504,15 @@ void main() {
 
       test('should handle validation during initialization', () async {
         // Create setting with validator
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'initvalidation',
-          items: SettingsGroup(
-            items: [
-              IntSetting(
-                key: 'validated',
-                defaultValue: 50,
-                validator: (value) => value >= 0 && value <= 100,
-              ),
-            ],
-          ),
+          items: [
+            IntSetting(
+              key: 'validated',
+              defaultValue: 50,
+              validator: (value) => value >= 0 && value <= 100,
+            ),
+          ],
         );
 
         // Pre-populate with invalid value
@@ -555,11 +532,9 @@ void main() {
 
     group('SharedPreferences Integration', () {
       test('should work with regular SharedPreferences in tests', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'regular',
-          items: SettingsGroup(
-            items: [StringSetting(key: 'text', defaultValue: 'default')],
-          ),
+          items: [StringSetting(key: 'text', defaultValue: 'default')],
         );
 
         Settings.register(settings);
@@ -573,11 +548,9 @@ void main() {
 
       test('should persist across multiple initializations', () async {
         // First initialization
-        final settings1 = SettingsBase.forTesting(
+        final settings1 = SettingsGroup.forTesting(
           key: 'persist-test',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'flag', defaultValue: false)],
-          ),
+          items: [BoolSetting(key: 'flag', defaultValue: false)],
         );
 
         Settings.register(settings1);
@@ -586,11 +559,9 @@ void main() {
         Settings.dispose();
 
         // Second initialization with same structure
-        final settings2 = SettingsBase.forTesting(
+        final settings2 = SettingsGroup.forTesting(
           key: 'persist-test',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'flag', defaultValue: false)],
-          ),
+          items: [BoolSetting(key: 'flag', defaultValue: false)],
         );
 
         Settings.register(settings2);
@@ -605,18 +576,14 @@ void main() {
 
     group('Global Settings Manager', () {
       test('should register and initialize multiple groups', () async {
-        final gameSettings = SettingsBase.forTesting(
+        final gameSettings = SettingsGroup.forTesting(
           key: 'game',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'sound', defaultValue: true)],
-          ),
+          items: [BoolSetting(key: 'sound', defaultValue: true)],
         );
 
-        final uiSettings = SettingsBase.forTesting(
+        final uiSettings = SettingsGroup.forTesting(
           key: 'ui',
-          items: SettingsGroup(
-            items: [StringSetting(key: 'theme', defaultValue: 'light')],
-          ),
+          items: [StringSetting(key: 'theme', defaultValue: 'light')],
         );
 
         Settings.register(gameSettings);
@@ -632,18 +599,14 @@ void main() {
       });
 
       test('should prevent duplicate group registration', () {
-        final settings1 = SettingsBase.forTesting(
+        final settings1 = SettingsGroup.forTesting(
           key: 'duplicate',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'test', defaultValue: true)],
-          ),
+          items: [BoolSetting(key: 'test', defaultValue: true)],
         );
 
-        final settings2 = SettingsBase.forTesting(
+        final settings2 = SettingsGroup.forTesting(
           key: 'duplicate', // Same key
-          items: SettingsGroup(
-            items: [IntSetting(key: 'other', defaultValue: 42)],
-          ),
+          items: [IntSetting(key: 'other', defaultValue: 42)],
         );
 
         Settings.register(settings1);
@@ -657,14 +620,12 @@ void main() {
       });
 
       test('should access settings using dot notation', () async {
-        final gameSettings = SettingsBase.forTesting(
+        final gameSettings = SettingsGroup.forTesting(
           key: 'game',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'soundEnabled', defaultValue: true),
-              DoubleSetting(key: 'volume', defaultValue: 0.8),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'soundEnabled', defaultValue: true),
+            DoubleSetting(key: 'volume', defaultValue: 0.8),
+          ],
         );
 
         Settings.register(gameSettings);
@@ -678,14 +639,12 @@ void main() {
       });
 
       test('should set values using dot notation', () async {
-        final uiSettings = SettingsBase.forTesting(
+        final uiSettings = SettingsGroup.forTesting(
           key: 'ui',
-          items: SettingsGroup(
-            items: [
-              StringSetting(key: 'theme', defaultValue: 'light'),
-              IntSetting(key: 'fontSize', defaultValue: 14),
-            ],
-          ),
+          items: [
+            StringSetting(key: 'theme', defaultValue: 'light'),
+            IntSetting(key: 'fontSize', defaultValue: 14),
+          ],
         );
 
         Settings.register(uiSettings);
@@ -699,16 +658,14 @@ void main() {
       });
 
       test('should support batch operations', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'batch',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'flag1', defaultValue: false),
-              BoolSetting(key: 'flag2', defaultValue: false),
-              IntSetting(key: 'number', defaultValue: 0),
-              StringSetting(key: 'text', defaultValue: 'default'),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'flag1', defaultValue: false),
+            BoolSetting(key: 'flag2', defaultValue: false),
+            IntSetting(key: 'number', defaultValue: 0),
+            StringSetting(key: 'text', defaultValue: 'default'),
+          ],
         );
 
         Settings.register(settings);
@@ -730,11 +687,9 @@ void main() {
       });
 
       test('should reset individual settings globally', () async {
-        final testSettings = SettingsBase.forTesting(
+        final testSettings = SettingsGroup.forTesting(
           key: 'globalreset',
-          items: SettingsGroup(
-            items: [IntSetting(key: 'value', defaultValue: 100)],
-          ),
+          items: [IntSetting(key: 'value', defaultValue: 100)],
         );
 
         Settings.register(testSettings);
@@ -748,14 +703,12 @@ void main() {
       });
 
       test('should reset entire groups globally', () async {
-        final groupSettings = SettingsBase.forTesting(
+        final groupSettings = SettingsGroup.forTesting(
           key: 'groupreset',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'flag', defaultValue: false),
-              IntSetting(key: 'count', defaultValue: 5),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'flag', defaultValue: false),
+            IntSetting(key: 'count', defaultValue: 5),
+          ],
         );
 
         Settings.register(groupSettings);
@@ -774,18 +727,14 @@ void main() {
       });
 
       test('should reset all settings globally', () async {
-        final group1 = SettingsBase.forTesting(
+        final group1 = SettingsGroup.forTesting(
           key: 'group1',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'setting', defaultValue: false)],
-          ),
+          items: [BoolSetting(key: 'setting', defaultValue: false)],
         );
 
-        final group2 = SettingsBase.forTesting(
+        final group2 = SettingsGroup.forTesting(
           key: 'group2',
-          items: SettingsGroup(
-            items: [IntSetting(key: 'setting', defaultValue: 10)],
-          ),
+          items: [IntSetting(key: 'setting', defaultValue: 10)],
         );
 
         Settings.register(group1);
@@ -805,11 +754,9 @@ void main() {
       });
 
       test('should handle invalid storage keys', () async {
-        final testSettings = SettingsBase.forTesting(
+        final testSettings = SettingsGroup.forTesting(
           key: 'invalid',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'test', defaultValue: true)],
-          ),
+          items: [BoolSetting(key: 'test', defaultValue: true)],
         );
 
         Settings.register(testSettings);
@@ -835,11 +782,9 @@ void main() {
       });
 
       test('should dispose all resources properly', () async {
-        final testSettings = SettingsBase.forTesting(
+        final testSettings = SettingsGroup.forTesting(
           key: 'dispose',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'test', defaultValue: true)],
-          ),
+          items: [BoolSetting(key: 'test', defaultValue: true)],
         );
 
         Settings.register(testSettings);
@@ -852,14 +797,12 @@ void main() {
 
     group('Type Safety and Error Handling', () {
       test('should enforce type safety in get operations', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'types',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'flag', defaultValue: true),
-              IntSetting(key: 'number', defaultValue: 42),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'flag', defaultValue: true),
+            IntSetting(key: 'number', defaultValue: 42),
+          ],
         );
 
         Settings.register(settings);
@@ -882,17 +825,15 @@ void main() {
       });
 
       test('should handle validation errors properly', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'validation',
-          items: SettingsGroup(
-            items: [
-              DoubleSetting(
-                key: 'percentage',
-                defaultValue: 0.5,
-                validator: (value) => value >= 0.0 && value <= 1.0,
-              ),
-            ],
-          ),
+          items: [
+            DoubleSetting(
+              key: 'percentage',
+              defaultValue: 0.5,
+              validator: (value) => value >= 0.0 && value <= 1.0,
+            ),
+          ],
         );
 
         Settings.register(settings);
@@ -914,17 +855,15 @@ void main() {
       });
 
       test('should preserve original values on validation failure', () async {
-        final settings = SettingsBase.forTesting(
+        final settings = SettingsGroup.forTesting(
           key: 'preserve',
-          items: SettingsGroup(
-            items: [
-              IntSetting(
-                key: 'bounded',
-                defaultValue: 50,
-                validator: (value) => value >= 0 && value <= 100,
-              ),
-            ],
-          ),
+          items: [
+            IntSetting(
+              key: 'bounded',
+              defaultValue: 50,
+              validator: (value) => value >= 0 && value <= 100,
+            ),
+          ],
         );
 
         Settings.register(settings);
@@ -947,14 +886,12 @@ void main() {
     group('Persistence and Storage', () {
       test('should persist values across instances', () async {
         // Create initial settings and set values
-        final settings1 = SettingsBase.forTesting(
+        final settings1 = SettingsGroup.forTesting(
           key: 'persist',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'flag', defaultValue: false),
-              StringSetting(key: 'text', defaultValue: 'default'),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'flag', defaultValue: false),
+            StringSetting(key: 'text', defaultValue: 'default'),
+          ],
         );
 
         Settings.register(settings1);
@@ -967,14 +904,12 @@ void main() {
         Settings.dispose();
 
         // Create new instance with same key structure
-        final settings2 = SettingsBase.forTesting(
+        final settings2 = SettingsGroup.forTesting(
           key: 'persist',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'flag', defaultValue: false),
-              StringSetting(key: 'text', defaultValue: 'default'),
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'flag', defaultValue: false),
+            StringSetting(key: 'text', defaultValue: 'default'),
+          ],
         );
 
         Settings.register(settings2);
@@ -987,11 +922,9 @@ void main() {
 
       test('should use default values for new settings', () async {
         // Create settings with some values
-        final initialSettings = SettingsBase.forTesting(
+        final initialSettings = SettingsGroup.forTesting(
           key: 'expand',
-          items: SettingsGroup(
-            items: [BoolSetting(key: 'existing', defaultValue: false)],
-          ),
+          items: [BoolSetting(key: 'existing', defaultValue: false)],
         );
 
         Settings.register(initialSettings);
@@ -1001,14 +934,12 @@ void main() {
         Settings.dispose();
 
         // Create expanded settings with new setting
-        final expandedSettings = SettingsBase.forTesting(
+        final expandedSettings = SettingsGroup.forTesting(
           key: 'expand',
-          items: SettingsGroup(
-            items: [
-              BoolSetting(key: 'existing', defaultValue: false),
-              IntSetting(key: 'newSetting', defaultValue: 42), // New setting
-            ],
-          ),
+          items: [
+            BoolSetting(key: 'existing', defaultValue: false),
+            IntSetting(key: 'newSetting', defaultValue: 42), // New setting
+          ],
         );
 
         Settings.register(expandedSettings);

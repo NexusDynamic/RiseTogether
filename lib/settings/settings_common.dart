@@ -1,8 +1,29 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+abstract interface class Serializable {
+  /// Converts the object to a JSON string representation.
+  /// This method should be implemented by all classes that mixin Serializable.
+  String toJson();
+
+  /// Creates an object from a JSON string representation.
+  /// This method should be implemented by all classes that mixin Serializable.
+  Serializable.fromJson(String json);
+
+  /// Converts the object to a map representation.
+  /// This method is useful for converting the object to a format that can be
+  /// easily serialized or stored.
+  Map<String, dynamic> toMap();
+
+  /// Creates an object from a map representation.
+  /// This method is useful for converting the object from a format that can be
+  /// easily serialized or stored.
+  Serializable.fromMap(Map<String, dynamic> map);
+}
 
 /// Exception thrown when a requested setting is not found.
 ///
@@ -293,7 +314,7 @@ enum SettingsType {
 /// - [IntSetting] for integer values
 /// - [DoubleSetting] for floating-point values
 /// - [StringSetting] for text values
-abstract class Setting<T> {
+abstract class Setting<T> implements Serializable {
   /// Internal stream controller for broadcasting value changes.
   /// Uses broadcast to allow multiple listeners.
   final StreamController<T> _controller = StreamController<T>.broadcast();
@@ -404,6 +425,41 @@ abstract class Setting<T> {
   void dispose() {
     _controller.close();
   }
+
+  /// Converts the setting to a map.
+  @override
+  Map<String, dynamic> toMap() {
+    return {
+      'key': key,
+      'type': type.name,
+      'defaultValue': defaultValue,
+      'userConfigurable': userConfigurable,
+      // Todo: convert validator to use validation classes (e.g. RangeValidator)
+      'validator': null,
+    };
+  }
+
+  /// Creates a setting from a map representation.
+  Setting.fromMap(Map<String, dynamic> map)
+    : key = map['key'] as String,
+      type = SettingsType.values.firstWhere(
+        (e) => e.name == map['type'],
+        orElse: () =>
+            throw ArgumentError('Invalid setting type: ${map['type']}'),
+      ),
+      defaultValue = map['defaultValue'] as T,
+      userConfigurable = map['userConfigurable'] as bool? ?? true,
+      validator = null;
+
+  /// Converts the setting to a JSON string representation.
+  @override
+  String toJson() {
+    return jsonEncode(toMap());
+  }
+
+  /// Creates a setting from a JSON string representation.
+  Setting.fromJson(String json)
+    : this.fromMap(jsonDecode(json) as Map<String, dynamic>);
 }
 
 /// A setting that stores boolean (true/false) values.
@@ -438,6 +494,14 @@ class BoolSetting extends Setting<bool> {
     super.userConfigurable,
     super.validator,
   }) : super(type: SettingsType.bool);
+
+  /// Converts the boolean value to a JSON string representation.
+  @override
+  String toJson() {
+    return defaultValue.toString();
+  }
+
+  /// Creates a boolean setting from a JSON string representation.
 }
 
 /// A setting that stores integer numeric values.
@@ -545,28 +609,50 @@ class StringSetting extends Setting<String> {
   }) : super(type: SettingsType.string);
 }
 
-/// A container that groups related settings together for organization.
+/// A comprehensive settings group that manages related settings with persistence,
+/// initialization, and type-safe access.
 ///
 /// [SettingsGroup] extends [UnmodifiableMapBase] to provide convenient
-/// map-like access to settings while preventing external modification
-/// of the group structure.
+/// map-like access to settings while managing their persistence and validation.
+/// Each group has a unique key namespace and handles its own initialization.
 ///
-/// This class is used internally by [SettingsBase] to organize and
-/// manage collections of related settings. It provides key-based access
-/// and iteration capabilities.
-///
-/// Example:
+/// Usage pattern:
 /// ```dart
-/// final audioSettings = SettingsGroup(items: [
-///   BoolSetting(key: 'enabled', defaultValue: true),
-///   DoubleSetting(key: 'volume', defaultValue: 0.8),
-///   StringSetting(key: 'device', defaultValue: 'default'),
-/// ]);
+/// // 1. Define your settings group
+/// final gameSettings = SettingsGroup(
+///   key: 'game',
+///   items: [
+///     BoolSetting(key: 'soundEnabled', defaultValue: true),
+///     DoubleSetting(key: 'volume', defaultValue: 0.8),
+///   ],
+/// );
 ///
-/// // Access settings like a map
-/// Setting volumeSetting = audioSettings['volume'];
+/// // 2. Register with the global settings manager
+/// Settings.register(gameSettings);
+///
+/// // 3. Wait for initialization
+/// await gameSettings.readyFuture;
+///
+/// // 4. Use the settings
+/// bool soundEnabled = gameSettings.get<bool>('soundEnabled');
+/// await gameSettings.setValue('volume', 0.5);
 /// ```
 class SettingsGroup extends UnmodifiableMapBase<String, Setting> {
+  /// Reference to the singleton settings store for persistence.
+  ///
+  /// This store handles the actual reading and writing of values
+  /// to SharedPreferences with caching for performance.
+  late final SettingsStore _store;
+
+  /// Unique identifier for this settings group.
+  ///
+  /// This key is used as a namespace prefix for all settings in this group.
+  /// For example, if key is 'game' and a setting key is 'volume',
+  /// the stored key becomes 'game.volume'.
+  ///
+  /// Should be descriptive and unique across your application.
+  final String key;
+
   /// Immutable set of all settings contained in this group.
   ///
   /// This set is created during construction and cannot be modified afterward.
@@ -579,25 +665,81 @@ class SettingsGroup extends UnmodifiableMapBase<String, Setting> {
   /// providing O(1) key existence checks and fast iteration.
   late final Set<String> _keys;
 
-  /// Creates a new settings group containing the specified settings.
+  /// Internal flag tracking initialization status.
+  bool _ready = false;
+
+  /// Public property indicating whether this settings group is ready for use.
+  ///
+  /// When false, accessing setting values will throw [SettingsNotReadyException].
+  /// When true, all settings have been loaded and are available synchronously.
+  bool get ready => _ready;
+
+  /// Internal completer that completes when initialization finishes.
+  late Completer<bool> _readyCompleter;
+
+  /// Future that completes when all settings in this group are initialized.
+  ///
+  /// Await this future before accessing setting values to ensure they've
+  /// been loaded from storage. The future completes with true on success
+  /// or throws an exception if initialization fails.
+  ///
+  /// Example:
+  /// ```dart
+  /// await gameSettings.readyFuture;
+  /// // Now safe to access settings synchronously
+  /// bool soundEnabled = gameSettings.get<bool>('soundEnabled');
+  /// ```
+  Future<bool> get readyFuture => _readyCompleter.future;
+
+  /// Creates a new settings group with the given key and settings.
   ///
   /// The provided [items] are converted to an immutable set, and their
   /// keys are extracted for efficient access. Duplicate keys within
   /// the same group are not allowed and will cause undefined behavior.
   ///
   /// Parameters:
+  /// - [key]: Unique identifier for this settings group
   /// - [items]: Collection of settings to include in this group
+  /// - [forceRegularSharedPreferences]: Whether to force regular SharedPreferences (for testing)
   ///
   /// Example:
   /// ```dart
-  /// final group = SettingsGroup(items: [
-  ///   BoolSetting(key: 'notifications', defaultValue: true),
-  ///   IntSetting(key: 'timeout', defaultValue: 30),
-  /// ]);
+  /// final group = SettingsGroup(
+  ///   key: 'game',
+  ///   items: [
+  ///     BoolSetting(key: 'notifications', defaultValue: true),
+  ///     IntSetting(key: 'timeout', defaultValue: 30),
+  ///   ],
+  /// );
   /// ```
-  SettingsGroup({required Iterable<Setting> items}) {
+  SettingsGroup({
+    required this.key,
+    required Iterable<Setting> items,
+    bool forceRegularSharedPreferences = false,
+  }) {
     this.items = Set<Setting>.from(items);
     _keys = items.map((item) => item.key).toSet();
+    _store = SettingsStore(
+      forceRegularSharedPreferences: forceRegularSharedPreferences,
+    );
+    _readyCompleter = Completer<bool>();
+    // Initialize the settings in the storage if they haven't been set yet.
+    _init();
+  }
+
+  /// Creates a new settings group optimized for testing.
+  /// This constructor forces the use of regular SharedPreferences instead
+  /// of SharedPreferencesWithCache to avoid test compatibility issues.
+  SettingsGroup.forTesting({
+    required this.key,
+    required Iterable<Setting> items,
+  }) {
+    this.items = Set<Setting>.from(items);
+    _keys = items.map((item) => item.key).toSet();
+    _store = SettingsStore(forceRegularSharedPreferences: true);
+    _readyCompleter = Completer<bool>();
+    // Initialize the settings in the storage if they haven't been set yet.
+    _init();
   }
 
   /// Retrieves a setting by its key.
@@ -641,112 +783,6 @@ class SettingsGroup extends UnmodifiableMapBase<String, Setting> {
   /// Returns: Integer count of settings in the group
   @override
   int get length => _keys.length;
-}
-
-/// Base class for managing a group of related settings.
-///
-/// [SettingsBase] provides the core functionality for a collection of settings,
-/// including initialization, type-safe access, validation, change notifications,
-/// and persistence. Each instance represents a logical group of settings
-/// (e.g., 'game', 'ui', 'network') with a unique namespace.
-///
-/// Usage pattern:
-/// ```dart
-/// // 1. Define your settings
-/// final gameSettings = SettingsBase(
-///   key: 'game',
-///   items: SettingsGroup(items: [
-///     BoolSetting(key: 'soundEnabled', defaultValue: true),
-///     DoubleSetting(key: 'volume', defaultValue: 0.8),
-///   ]),
-/// );
-///
-/// // 2. Register with the global settings manager
-/// Settings.register(gameSettings);
-///
-/// // 3. Wait for initialization
-/// await gameSettings.readyFuture;
-///
-/// // 4. Use the settings
-/// bool soundEnabled = gameSettings.get<bool>('soundEnabled');
-/// await gameSettings.setValue('volume', 0.5);
-/// ```
-///
-/// The class handles all the complexity of storage, type conversion, and
-/// error handling, providing a clean interface for application code.
-class SettingsBase {
-  /// Reference to the singleton settings store for persistence.
-  ///
-  /// This store handles the actual reading and writing of values
-  /// to SharedPreferences with caching for performance.
-  late final SettingsStore _store;
-
-  /// Unique identifier for this settings group.
-  ///
-  /// This key is used as a namespace prefix for all settings in this group.
-  /// For example, if key is 'game' and a setting key is 'volume',
-  /// the stored key becomes 'game.volume'.
-  ///
-  /// Should be descriptive and unique across your application.
-  final String key;
-
-  /// Container holding all settings that belong to this group.
-  ///
-  /// Provides map-like access to individual settings by their keys.
-  /// The group is immutable once created to ensure consistency.
-  final SettingsGroup items;
-
-  /// Internal flag tracking initialization status.
-  bool _ready = false;
-
-  /// Public property indicating whether this settings group is ready for use.
-  ///
-  /// When false, accessing setting values will throw [SettingsNotReadyException].
-  /// When true, all settings have been loaded and are available synchronously.
-  bool get ready => _ready;
-
-  /// Internal completer that completes when initialization finishes.
-  late Completer<bool> _readyCompleter;
-
-  /// Future that completes when all settings in this group are initialized.
-  ///
-  /// Await this future before accessing setting values to ensure they've
-  /// been loaded from storage. The future completes with true on success
-  /// or throws an exception if initialization fails.
-  ///
-  /// Example:
-  /// ```dart
-  /// await gameSettings.readyFuture;
-  /// // Now safe to access settings synchronously
-  /// bool soundEnabled = gameSettings.get<bool>('soundEnabled');
-  /// ```
-  Future<bool> get readyFuture => _readyCompleter.future;
-
-  /// Creates a new base settings instance with the given key and items.
-  /// If you need to ensure settings are initialized before use, you should
-  /// await the [readyFuture] before accessing any settings.
-  SettingsBase({
-    required this.key,
-    required this.items,
-    bool forceRegularSharedPreferences = false,
-  }) {
-    _store = SettingsStore(
-      forceRegularSharedPreferences: forceRegularSharedPreferences,
-    );
-    _readyCompleter = Completer<bool>();
-    // Initialize the settings in the storage if they haven't been set yet.
-    _init();
-  }
-
-  /// Creates a new base settings instance optimized for testing.
-  /// This constructor forces the use of regular SharedPreferences instead
-  /// of SharedPreferencesWithCache to avoid test compatibility issues.
-  SettingsBase.forTesting({required this.key, required this.items}) {
-    _store = SettingsStore(forceRegularSharedPreferences: true);
-    _readyCompleter = Completer<bool>();
-    // Initialize the settings in the storage if they haven't been set yet.
-    _init();
-  }
 
   /// Initializes the settings by checking if they are set in the storage.
   /// If not, it sets them with their default values.
@@ -760,7 +796,7 @@ class SettingsBase {
       if (!_store.ready) {
         await _store.readyFuture;
       }
-      for (final Setting setting in items.values) {
+      for (final Setting setting in items) {
         final storageKey = _storageKey(setting.key);
         if (!_store.prefs.containsKey(storageKey)) {
           // If the setting is not set, initialize it with the default value.
@@ -790,7 +826,7 @@ class SettingsBase {
   /// Sets the value of a setting by its key.
   Future<void> setValue<T>(String key, T value) async {
     await _waitUntilReady();
-    final setting = items[key];
+    final setting = this[key];
     if (setting == null) {
       throw SettingNotFoundException(
         'No setting in ${this.key} found for key: $key',
@@ -825,7 +861,7 @@ class SettingsBase {
     if (T == dynamic) {
       return getValue(key);
     }
-    final setting = items[key];
+    final setting = this[key];
     if (setting == null) {
       throw SettingNotFoundException(
         'No setting in ${this.key} found for key: $key',
@@ -843,7 +879,7 @@ class SettingsBase {
   /// Gets the value of a setting by its key.
   dynamic getValue(String key) {
     _readySync();
-    final setting = items[key];
+    final setting = this[key];
     if (setting == null) {
       throw SettingNotFoundException(
         'No setting in ${this.key} found for key: $key',
@@ -1004,7 +1040,7 @@ class SettingsBase {
   /// Reset a setting to its default value.
   Future<void> reset(String key) async {
     await _waitUntilReady();
-    final setting = items[key];
+    final setting = this[key];
     if (setting == null) {
       throw SettingNotFoundException(
         'No setting in ${this.key} found for key: $key',
@@ -1020,7 +1056,7 @@ class SettingsBase {
   /// Reset all settings in this group to their default values.
   Future<void> resetAll() async {
     await _waitUntilReady();
-    for (final setting in items.values) {
+    for (final setting in items) {
       final storageKey = _storageKey(setting.key);
       await _set(storageKey, setting, null, force: true);
       setting._notifyChange(setting.defaultValue);
@@ -1029,7 +1065,7 @@ class SettingsBase {
 
   /// Dispose all stream controllers for settings in this group.
   void dispose() {
-    for (final setting in items.values) {
+    for (final setting in items) {
       setting.dispose();
     }
   }
@@ -1039,7 +1075,7 @@ class SettingsBase {
 ///
 /// The [Settings] class serves as the main entry point for the settings framework,
 /// offering static methods for registration, initialization, and access to settings
-/// across your entire application. It manages multiple [SettingsBase] groups and
+/// across your entire application. It manages multiple [SettingsGroup] instances and
 /// provides both individual and batch operations.
 ///
 /// ## Overview
@@ -1048,11 +1084,11 @@ class SettingsBase {
 /// ```
 /// Settings (Global Manager)
 /// │
-/// ├── SettingsBase (Group: "game")
+/// ├── SettingsGroup (Group: "game")
 /// │   ├── BoolSetting ("soundEnabled")
 /// │   └── DoubleSetting ("volume")
 /// │
-/// └── SettingsBase (Group: "ui")
+/// └── SettingsGroup (Group: "ui")
 ///     ├── StringSetting ("theme")
 ///     └── IntSetting ("fontSize")
 /// ```
@@ -1061,20 +1097,20 @@ class SettingsBase {
 ///
 /// ```dart
 /// // 1. Define your setting groups
-/// final gameSettings = SettingsBase(
+/// final gameSettings = SettingsGroup(
 ///   key: 'game',
-///   items: SettingsGroup(items: [
+///   items: [
 ///     BoolSetting(key: 'soundEnabled', defaultValue: true),
 ///     DoubleSetting(key: 'volume', defaultValue: 0.8),
-///   ]),
+///   ],
 /// );
 ///
-/// final uiSettings = SettingsBase(
+/// final uiSettings = SettingsGroup(
 ///   key: 'ui',
-///   items: SettingsGroup(items: [
+///   items: [
 ///     StringSetting(key: 'theme', defaultValue: 'light'),
 ///     IntSetting(key: 'fontSize', defaultValue: 14),
-///   ]),
+///   ],
 /// );
 ///
 /// // 2. Register all groups
@@ -1116,9 +1152,9 @@ class SettingsBase {
 class Settings {
   /// Internal registry of all settings groups keyed by their group names.
   ///
-  /// This map stores all registered [SettingsBase] instances, providing
+  /// This map stores all registered [SettingsGroup] instances, providing
   /// fast lookup by group key. Groups must be registered before use.
-  static final Map<String, SettingsBase> _settings = {};
+  static final Map<String, SettingsGroup> _settings = {};
 
   /// Initializes all registered settings groups concurrently.
   ///
@@ -1154,7 +1190,7 @@ class Settings {
   }
 
   /// Returns a map of all registered settings groups.
-  static Map<String, SettingsBase> get groups => _settings;
+  static Map<String, SettingsGroup> get groups => _settings;
 
   /// Returns a list of all registered settings groups keys.
   static List<String> get groupKeys => _settings.keys.toList();
@@ -1163,7 +1199,7 @@ class Settings {
   /// This allows you to access settings like:
   /// Settings.game.fullscreen, Settings.game.soundVolume, etc.
   @override
-  SettingsBase noSuchMethod(Invocation invocation) {
+  SettingsGroup noSuchMethod(Invocation invocation) {
     if (invocation.isGetter) {
       final key = invocation.memberName.toString();
       if (_settings.containsKey(key)) {
@@ -1200,21 +1236,21 @@ class Settings {
   /// This method should be called during application startup, before calling [init].
   ///
   /// Parameters:
-  /// - [settings]: The SettingsBase instance to register
+  /// - [settings]: The SettingsGroup instance to register
   ///
   /// Throws: [ArgumentError] if a group with the same key already exists
   ///
   /// Example:
   /// ```dart
-  /// final gameSettings = SettingsBase(key: 'game', items: [...]);
-  /// final uiSettings = SettingsBase(key: 'ui', items: [...]);
+  /// final gameSettings = SettingsGroup(key: 'game', items: [...]);
+  /// final uiSettings = SettingsGroup(key: 'ui', items: [...]);
   ///
   /// Settings.register(gameSettings);
   /// Settings.register(uiSettings);
   ///
   /// await Settings.init(); // Initialize after all groups are registered
   /// ```
-  static void register(SettingsBase settings) {
+  static void register(SettingsGroup settings) {
     if (_settings.containsKey(settings.key)) {
       throw ArgumentError('Settings with key ${settings.key} already exists');
     }
@@ -1222,7 +1258,7 @@ class Settings {
   }
 
   /// Gets a settings group by its key.
-  static SettingsBase getGroup(String key) {
+  static SettingsGroup getGroup(String key) {
     if (!_settings.containsKey(key)) {
       throw SettingNotFoundException('No settings group found for key: $key');
     }
