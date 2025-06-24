@@ -3,12 +3,12 @@ import 'package:flame/events.dart';
 import 'package:flame_forge2d/flame_forge2d.dart' show BodyComponent;
 import 'package:flutter/material.dart';
 import 'package:rise_together/main.dart';
-import 'package:rise_together/components/ball.dart';
-import 'package:rise_together/components/paddle.dart';
-import 'package:rise_together/components/target.dart';
-import 'package:rise_together/components/wall.dart';
+import 'package:rise_together/src/components/ball.dart';
+import 'package:rise_together/src/components/paddle.dart';
+import 'package:rise_together/src/components/target.dart';
+import 'package:rise_together/src/components/wall.dart';
 import 'package:rise_together/config.dart';
-import 'package:rise_together/models/game_state.dart';
+import 'package:rise_together/src/models/game_state.dart';
 
 /// Main world container for split screen - extends DecoratedWorld to be compatible with WorldRoute
 class SplitScreenLevelPage extends DecoratedWorld

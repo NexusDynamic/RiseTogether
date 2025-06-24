@@ -8,16 +8,16 @@
 /// Usage Example:
 /// ```dart
 /// // Define your settings
-/// final gameSettings = SettingsGroup(
+/// final gameSettings = SettingsBase(
 ///   key: 'game',
-///   items: [
+///   items: SettingsGroup(items: [
 ///     BoolSetting(key: 'soundEnabled', defaultValue: true),
 ///     DoubleSetting(
 ///       key: 'volume',
 ///       defaultValue: 0.8,
 ///       validator: (v) => v >= 0.0 && v <= 1.0,
 ///     ),
-///   ],
+///   ]),
 /// );
 ///
 /// // Register and initialize
@@ -29,7 +29,7 @@
 /// await Settings.setBool('game.soundEnabled', false);
 ///
 /// // Listen for changes
-/// gameSettings['soundEnabled']!.stream.listen((value) {
+/// gameSettings.items['soundEnabled']!.stream.listen((value) {
 ///   print('Sound enabled changed to: $value');
 /// });
 /// ```
@@ -37,5 +37,10 @@
 /// =============================================================================
 library;
 
-export 'settings_common.dart';
+export 'settings_manager.dart';
+export 'exceptions.dart';
+export 'setting.dart';
+export 'settings_group.dart';
+export 'settings_store.dart';
 export 'game.dart';
+export 'physics.dart';

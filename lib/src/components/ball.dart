@@ -1,7 +1,7 @@
 import 'package:flame/components.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
-import 'package:rise_together/components/target.dart';
-import 'package:rise_together/components/wall.dart';
+import 'package:rise_together/src/components/target.dart';
+import 'package:rise_together/src/components/wall.dart';
 import 'package:rise_together/main.dart';
 
 class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {

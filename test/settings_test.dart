@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:rise_together/settings/settings_common.dart';
+import 'package:rise_together/src/settings/settings.dart';
 
 void main() {
   // Set up Flutter test environment
@@ -89,7 +89,7 @@ void main() {
 
         expect(setting.key, equals('testBool'));
         expect(setting.defaultValue, equals(true));
-        expect(setting.type, equals(SettingsType.bool));
+        expect(setting.type, equals(SettingType.bool));
         expect(setting.userConfigurable, equals(false));
         expect(setting.validator, isNull);
       });
@@ -103,7 +103,7 @@ void main() {
 
         expect(setting.key, equals('testInt'));
         expect(setting.defaultValue, equals(10));
-        expect(setting.type, equals(SettingsType.int));
+        expect(setting.type, equals(SettingType.int));
         expect(setting.userConfigurable, equals(true)); // default
         expect(setting.validator, isNotNull);
 
@@ -122,7 +122,7 @@ void main() {
 
         expect(setting.key, equals('volume'));
         expect(setting.defaultValue, equals(0.5));
-        expect(setting.type, equals(SettingsType.double));
+        expect(setting.type, equals(SettingType.double));
 
         // Test validator
         expect(setting.validator!(0.0), isTrue);
@@ -141,7 +141,7 @@ void main() {
 
         expect(setting.key, equals('theme'));
         expect(setting.defaultValue, equals('light'));
-        expect(setting.type, equals(SettingsType.string));
+        expect(setting.type, equals(SettingType.string));
 
         // Test validator
         expect(setting.validator!('light'), isTrue);
@@ -384,9 +384,7 @@ void main() {
         await settings.readyFuture;
 
         final events = <bool>[];
-        final subscription = settings['notifiable']!.stream.listen((
-          value,
-        ) {
+        final subscription = settings['notifiable']!.stream.listen((value) {
           events.add(value as bool);
         });
 

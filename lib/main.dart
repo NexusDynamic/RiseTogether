@@ -5,13 +5,13 @@ import 'package:flame/rendering.dart';
 import 'package:flame_forge2d/flame_forge2d.dart' hide Vector2;
 import 'package:flutter/services.dart';
 import 'package:flutter_refresh_rate_control/flutter_refresh_rate_control.dart';
-import 'components/ball.dart';
-import 'components/wall.dart';
-import 'components/paddle.dart';
-import 'components/target.dart';
+import 'src/components/ball.dart';
+import 'src/components/wall.dart';
+import 'src/components/paddle.dart';
+import 'src/components/target.dart';
 import 'config.dart';
-import 'components/split_world.dart';
-import 'services/lsl_service.dart';
+import 'src/components/split_world.dart';
+import 'src/services/lsl_service.dart';
 import 'package:flame/components.dart' hide Timer;
 import 'package:flutter/material.dart' hide Route;
 import 'package:logging/logging.dart';
@@ -295,11 +295,10 @@ class RoundedButton extends PositionComponent with TapCallbacks {
     );
     _rrect = RRect.fromLTRBR(0, 0, size.x, size.y, Radius.circular(size.y / 2));
     _bgPaint = Paint()..color = color;
-    _borderPaint =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = borderColor;
+    _borderPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = borderColor;
   }
 
   final String text;
