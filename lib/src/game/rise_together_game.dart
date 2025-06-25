@@ -7,37 +7,19 @@ import 'package:flame/game.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter/widgets.dart' show KeyEventResult, KeyEvent;
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/components/in_game_ui.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
+import 'package:rise_together/src/game/action_system.dart';
+import 'package:rise_together/src/game/world_controller.dart';
+import 'package:rise_together/src/game/network_action_bridge.dart';
+import 'package:rise_together/src/game/local_network_bridge.dart';
 import 'rise_together_world.dart';
 
-final Set<LogicalKeyboardKey> validKeys = {
-  LogicalKeyboardKey.arrowLeft,
-  LogicalKeyboardKey.arrowRight,
-};
 
-/// Each player on either team can contribute only one of the following at a
-///  time:
-///  - paddleLeft: Contributes to the thrust on the left side of the paddle.
-///  - paddleRight: Contributes to the thrust on the right side of the paddle.
-///  - none: Does not contribute to the paddle's thrust.
-enum PlayerContribution { paddleLeft, paddleRight, none }
-
-class PlayerState {
-  PlayerContribution currentContribution = PlayerContribution.none;
-  PlayerState();
-  void reset() {
-    currentContribution = PlayerContribution.none;
-  }
-
-  void setContribution(PlayerContribution contribution) {
-    currentContribution = contribution;
-  }
-}
 
 /// A provider for tracking the time passed in the game.
 class TimeProvider extends ChangeNotifier {
@@ -64,16 +46,20 @@ class RiseTogetherGame extends Forge2DGame
   late final RouterComponent router;
   final TimeProvider timeProvider = TimeProvider();
 
-  final Set<LogicalKeyboardKey> pressedKeySet = {};
 
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
+  final List<WorldController> worldControllers = [];
+
+  late final ActionStreamManager actionManager;
+  late final NetworkBridge networkBridge;
 
   final isGameOver = false;
 
   final RiseTogetherLevel level;
+  final bool useLocalNetwork;
 
-  RiseTogetherGame({this.level = const Level1()})
+  RiseTogetherGame({this.level = const Level1(), this.useLocalNetwork = true})
     : super(gravity: Vector2.zero(), zoom: 10);
 
   List<Forge2DWorld> _buildWorlds() {
@@ -124,17 +110,52 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   Future<void> _addPaddles() async {
-    for (final camera in cameras) {
+    for (int i = 0; i < cameras.length; i++) {
+      final camera = cameras[i];
       final world = camera.world as RiseTogetherWorld;
       final paddle = world.buildPaddle();
       world.add(paddle);
       final ball = world.buildBall();
       world.add(ball);
+      
       // wait for the paddle to be loaded
       await paddle.loaded;
       appLog.fine('Adding paddle to camera: ${camera.hashCode}');
       camera.follow(paddle);
+      
+      // Connect paddle to world controller
+      worldControllers[i].setPaddle(paddle);
     }
+  }
+
+  Future<void> _initializeActionSystem() async {
+    appLog.fine('Initializing action system');
+    
+    // Create action stream manager
+    actionManager = ActionStreamManager();
+    
+    // Create team streams and world controllers
+    for (int teamId = 0; teamId < nTeams; teamId++) {
+      final teamStream = actionManager.createTeamStream(teamId, 5); // max 5 players per team
+      final worldController = WorldController(
+        world: worlds[teamId],
+        actionStream: teamStream,
+      );
+      worldControllers.add(worldController);
+      worldController.initialize();
+    }
+    
+    // Initialize network bridge based on configuration
+    if (useLocalNetwork) {
+      networkBridge = NetworkBridgeFactory.createLocalBridge(actionManager);
+      appLog.info('Using local network bridge for testing');
+    } else {
+      networkBridge = NetworkBridgeFactory.createLSLBridge(actionManager);
+      appLog.info('Using LSL network bridge');
+    }
+    await networkBridge.initialize();
+    
+    appLog.fine('Action system initialized');
   }
 
   @override
@@ -148,6 +169,9 @@ class RiseTogetherGame extends Forge2DGame
     children.register<CameraComponent>();
     await Flame.images.load('ball.png');
     _buildCameras(_buildWorlds());
+
+    // Initialize action system before adding paddles
+    await _initializeActionSystem();
 
     addAll(worlds);
     addAll(cameras);
@@ -166,15 +190,28 @@ class RiseTogetherGame extends Forge2DGame
     if (!isLoaded) {
       return KeyEventResult.ignored;
     }
-    _clearPressedKeys();
-    for (final key in keysPressed) {
-      if (!validKeys.contains(key)) {
-        continue;
-      }
-      appLog.fine('Key pressed: $key');
-      pressedKeySet.add(key);
-    }
+    
+    // Handle keyboard input through new action system
+    _handleKeyboardActions(keysPressed);
+    
     return KeyEventResult.handled;
+  }
+
+  void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
+    // For testing, send actions for team 0 (left side)
+    const testPlayerId = 'keyboard_player';
+    const testTeamId = 0;
+    
+    PaddleAction action = PaddleAction.none;
+    
+    if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
+      action = PaddleAction.left;
+    } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
+      action = PaddleAction.right;
+    }
+    
+    // Send action through network bridge (which will route to local stream for testing)
+    networkBridge.sendAction(testTeamId, testPlayerId, action);
   }
 
   @override
@@ -186,7 +223,15 @@ class RiseTogetherGame extends Forge2DGame
     timeProvider.updateTime(dt);
   }
 
-  void _clearPressedKeys() {
-    pressedKeySet.clear();
+  @override
+  void onRemove() {
+    // Clean up resources
+    for (final controller in worldControllers) {
+      controller.dispose();
+    }
+    networkBridge.dispose();
+    actionManager.dispose();
+    super.onRemove();
   }
+
 }
