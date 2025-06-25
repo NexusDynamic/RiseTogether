@@ -115,16 +115,16 @@ class Settings {
   /// // Now safe to use settings synchronously
   /// bool soundEnabled = Settings.getBool('game.soundEnabled');
   /// ```
-  static Future<void> init() async {
+  Future<void> init() async {
     final futures = _settings.values.map((settings) => settings.readyFuture);
     await Future.wait(futures);
   }
 
   /// Returns a map of all registered settings groups.
-  static Map<String, SettingsGroup> get groups => _settings;
+  Map<String, SettingsGroup> get groups => _settings;
 
   /// Returns a list of all registered settings groups keys.
-  static List<String> get groupKeys => _settings.keys.toList();
+  List<String> get groupKeys => _settings.keys.toList();
 
   /// Allow access to settings by key using dynamic getters.
   /// This allows you to access settings like:
@@ -181,7 +181,7 @@ class Settings {
   ///
   /// await Settings.init(); // Initialize after all groups are registered
   /// ```
-  static void register(SettingsGroup settings) {
+  void register(SettingsGroup settings) {
     if (_settings.containsKey(settings.key)) {
       throw ArgumentError('Settings with key ${settings.key} already exists');
     }
@@ -189,7 +189,7 @@ class Settings {
   }
 
   /// Gets a settings group by its key.
-  static SettingsGroup getGroup(String key) {
+  SettingsGroup getGroup(String key) {
     if (!_settings.containsKey(key)) {
       throw SettingNotFoundException('No settings group found for key: $key');
     }
@@ -200,7 +200,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found.
-  static T get<T>(String storageKey) {
+  T get<T>(String storageKey) {
     // Split the storage key to get the group key and setting key.
     final id = _parseStorageKey(storageKey);
 
@@ -216,7 +216,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not of type bool.
-  static bool getBool(String storageKey) {
+  bool getBool(String storageKey) {
     return get<bool>(storageKey);
   }
 
@@ -224,7 +224,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not of type int.
-  static int getInt(String storageKey) {
+  int getInt(String storageKey) {
     return get<int>(storageKey);
   }
 
@@ -232,7 +232,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not of type double.
-  static double getDouble(String storageKey) {
+  double getDouble(String storageKey) {
     return get<double>(storageKey);
   }
 
@@ -240,7 +240,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not of type string.
-  static String getString(String storageKey) {
+  String getString(String storageKey) {
     return get<String>(storageKey);
   }
 
@@ -250,7 +250,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not user configurable.
-  static Future<void> setValue(String storageKey, dynamic value) async {
+  Future<void> setValue(String storageKey, dynamic value) async {
     final id = _parseStorageKey(storageKey);
     final group = getGroup(id.group);
     await group.setValue(id.setting, value);
@@ -260,7 +260,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not user configurable.
-  static Future<void> set<T>(String storageKey, T value) async {
+  Future<void> set<T>(String storageKey, T value) async {
     final id = _parseStorageKey(storageKey);
     final group = getGroup(id.group);
     await group.setValue<T>(id.setting, value);
@@ -270,7 +270,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not user configurable.
-  static Future<void> setBool(String storageKey, bool value) async {
+  Future<void> setBool(String storageKey, bool value) async {
     await set<bool>(storageKey, value);
   }
 
@@ -278,7 +278,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not user configurable.
-  static Future<void> setInt(String storageKey, int value) async {
+  Future<void> setInt(String storageKey, int value) async {
     await set<int>(storageKey, value);
   }
 
@@ -286,7 +286,7 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not user configurable.
-  static Future<void> setDouble(String storageKey, double value) async {
+  Future<void> setDouble(String storageKey, double value) async {
     await set<double>(storageKey, value);
   }
 
@@ -294,14 +294,14 @@ class Settings {
   /// The [storageKey] should be in the format "groupKey.settingKey".
   /// Throws an [ArgumentError] if the storage key is invalid or
   /// if the setting is not found or is not user configurable.
-  static Future<void> setString(String storageKey, String value) async {
+  Future<void> setString(String storageKey, String value) async {
     await set<String>(storageKey, value);
   }
 
   /// Sets multiple settings values in a batch operation.
   /// The [settings] map should contain storage keys as keys and values as values.
   /// This is more efficient than setting values individually.
-  static Future<void> setMultiple(Map<String, dynamic> settings) async {
+  Future<void> setMultiple(Map<String, dynamic> settings) async {
     final futures = <Future<void>>[];
     for (final entry in settings.entries) {
       futures.add(setValue(entry.key, entry.value));
@@ -311,7 +311,7 @@ class Settings {
 
   /// Reset a setting to its default value by storage key.
   /// The [storageKey] should be in the format "groupKey.settingKey".
-  static Future<void> resetSetting(String storageKey) async {
+  Future<void> resetSetting(String storageKey) async {
     final id = _parseStorageKey(storageKey);
     final group = getGroup(id.group);
     await group.reset(id.setting);
@@ -319,19 +319,19 @@ class Settings {
 
   /// Reset all settings in a group to their default values.
   /// The [groupKey] should be the key of the settings group.
-  static Future<void> resetGroup(String groupKey) async {
+  Future<void> resetGroup(String groupKey) async {
     final group = getGroup(groupKey);
     await group.resetAll();
   }
 
   /// Reset all settings across all groups to their default values.
-  static Future<void> resetAll() async {
+  Future<void> resetAll() async {
     final futures = _settings.values.map((group) => group.resetAll());
     await Future.wait(futures);
   }
 
   /// Dispose all settings groups and their stream controllers.
-  static void dispose() {
+  void dispose() {
     for (final group in _settings.values) {
       group.dispose();
     }
@@ -339,7 +339,7 @@ class Settings {
   }
 
   /// Clear all registered settings groups (for testing purposes).
-  static void clearAll() {
+  void clearAll() {
     dispose();
   }
 

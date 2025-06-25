@@ -5,6 +5,7 @@ import 'package:rise_together/src/settings/settings.dart';
 void main() {
   // Set up Flutter test environment
   TestWidgetsFlutterBinding.ensureInitialized();
+  final appSettings = Settings();
   group('Settings Framework Tests', () {
     setUp(() async {
       // Clear SharedPreferences before each test using the simpler mock approach
@@ -17,7 +18,7 @@ void main() {
 
     tearDown(() async {
       // Clear static settings registry first
-      Settings.clearAll();
+      appSettings.clearAll();
 
       // Reset the singleton store after each test
       SettingsStore.reset();
@@ -406,13 +407,13 @@ void main() {
           items: [IntSetting(key: 'counter', defaultValue: 0)],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Simulate concurrent modifications
         final futures = List.generate(10, (i) async {
-          await Settings.setInt('concurrent.counter', i);
-          return Settings.getInt('concurrent.counter');
+          await appSettings.setInt('concurrent.counter', i);
+          return appSettings.getInt('concurrent.counter');
         });
 
         final results = await Future.wait(futures);
@@ -420,7 +421,7 @@ void main() {
         // At least one operation should complete successfully
         expect(results.any((result) => result >= 0), isTrue);
 
-        Settings.dispose();
+        appSettings.dispose();
       });
 
       test('should handle concurrent stream listeners', () async {
@@ -429,8 +430,8 @@ void main() {
           items: [BoolSetting(key: 'flag', defaultValue: false)],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         final events1 = <bool>[];
         final events2 = <bool>[];
@@ -442,8 +443,8 @@ void main() {
           (value) => events2.add(value as bool),
         );
 
-        await Settings.setBool('streams.flag', true);
-        await Settings.setBool('streams.flag', false);
+        await appSettings.setBool('streams.flag', true);
+        await appSettings.setBool('streams.flag', false);
 
         await Future.delayed(Duration(milliseconds: 50));
 
@@ -452,7 +453,7 @@ void main() {
 
         await sub1.cancel();
         await sub2.cancel();
-        Settings.dispose();
+        appSettings.dispose();
       });
     });
 
@@ -463,8 +464,8 @@ void main() {
           items: [BoolSetting(key: 'exists', defaultValue: true)],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Simulate missing key in storage
         final store = SettingsStore();
@@ -472,9 +473,9 @@ void main() {
         await store.prefs.remove('missing.exists');
 
         // Should fall back to default value
-        expect(Settings.getBool('missing.exists'), isTrue);
+        expect(appSettings.getBool('missing.exists'), isTrue);
 
-        Settings.dispose();
+        appSettings.dispose();
       });
 
       test('should handle type mismatches in storage (default)', () async {
@@ -483,8 +484,8 @@ void main() {
           items: [IntSetting(key: 'number', defaultValue: 42)],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Manually set wrong type in storage
         final store = SettingsStore();
@@ -493,11 +494,11 @@ void main() {
 
         // Should handle type mismatch gracefully
         expect(
-          Settings.getInt('typemismatch.number'),
+          appSettings.getInt('typemismatch.number'),
           equals(42), // Should return default value
         );
 
-        Settings.dispose();
+        appSettings.dispose();
       });
 
       test('should handle validation during initialization', () async {
@@ -518,13 +519,13 @@ void main() {
         await store.readyFuture;
         await store.prefs.setInt('initvalidation.validated', 150);
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Should use default value when stored value is invalid
-        expect(Settings.getInt('initvalidation.validated'), equals(50));
+        expect(appSettings.getInt('initvalidation.validated'), equals(50));
 
-        Settings.dispose();
+        appSettings.dispose();
       });
     });
 
@@ -535,13 +536,13 @@ void main() {
           items: [StringSetting(key: 'text', defaultValue: 'default')],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
-        await Settings.setString('regular.text', 'test-value');
-        expect(Settings.getString('regular.text'), equals('test-value'));
+        await appSettings.setString('regular.text', 'test-value');
+        expect(appSettings.getString('regular.text'), equals('test-value'));
 
-        Settings.dispose();
+        appSettings.dispose();
       });
 
       test('should persist across multiple initializations', () async {
@@ -551,10 +552,10 @@ void main() {
           items: [BoolSetting(key: 'flag', defaultValue: false)],
         );
 
-        Settings.register(settings1);
-        await Settings.init();
-        await Settings.setBool('persist-test.flag', true);
-        Settings.dispose();
+        appSettings.register(settings1);
+        await appSettings.init();
+        await appSettings.setBool('persist-test.flag', true);
+        appSettings.dispose();
 
         // Second initialization with same structure
         final settings2 = SettingsGroup.forTesting(
@@ -562,13 +563,13 @@ void main() {
           items: [BoolSetting(key: 'flag', defaultValue: false)],
         );
 
-        Settings.register(settings2);
-        await Settings.init();
+        appSettings.register(settings2);
+        await appSettings.init();
 
         // Value should persist
-        expect(Settings.getBool('persist-test.flag'), isTrue);
+        expect(appSettings.getBool('persist-test.flag'), isTrue);
 
-        Settings.dispose();
+        appSettings.dispose();
       });
     });
 
@@ -584,16 +585,16 @@ void main() {
           items: [StringSetting(key: 'theme', defaultValue: 'light')],
         );
 
-        Settings.register(gameSettings);
-        Settings.register(uiSettings);
+        appSettings.register(gameSettings);
+        appSettings.register(uiSettings);
 
-        await Settings.init();
+        await appSettings.init();
 
-        expect(Settings.groups.length, equals(2));
-        expect(Settings.groupKeys, containsAll(['game', 'ui']));
+        expect(appSettings.groups.length, equals(2));
+        expect(appSettings.groupKeys, containsAll(['game', 'ui']));
 
         // Clean up for other tests
-        Settings.dispose();
+        appSettings.dispose();
       });
 
       test('should prevent duplicate group registration', () {
@@ -607,14 +608,14 @@ void main() {
           items: [IntSetting(key: 'other', defaultValue: 42)],
         );
 
-        Settings.register(settings1);
+        appSettings.register(settings1);
 
         expect(
-          () => Settings.register(settings2),
+          () => appSettings.register(settings2),
           throwsA(isA<ArgumentError>()),
         );
 
-        Settings.dispose();
+        appSettings.dispose();
       });
 
       test('should access settings using dot notation', () async {
@@ -626,14 +627,14 @@ void main() {
           ],
         );
 
-        Settings.register(gameSettings);
-        await Settings.init();
+        appSettings.register(gameSettings);
+        await appSettings.init();
 
-        expect(Settings.getBool('game.soundEnabled'), isTrue);
-        expect(Settings.getDouble('game.volume'), equals(0.8));
-        expect(Settings.get<bool>('game.soundEnabled'), isTrue);
+        expect(appSettings.getBool('game.soundEnabled'), isTrue);
+        expect(appSettings.getDouble('game.volume'), equals(0.8));
+        expect(appSettings.get<bool>('game.soundEnabled'), isTrue);
         // Dynamic access operator not available in static context
-        expect(Settings.get<dynamic>('game.soundEnabled'), isTrue);
+        expect(appSettings.get<dynamic>('game.soundEnabled'), isTrue);
       });
 
       test('should set values using dot notation', () async {
@@ -645,14 +646,14 @@ void main() {
           ],
         );
 
-        Settings.register(uiSettings);
-        await Settings.init();
+        appSettings.register(uiSettings);
+        await appSettings.init();
 
-        await Settings.setString('ui.theme', 'dark');
-        await Settings.setInt('ui.fontSize', 16);
+        await appSettings.setString('ui.theme', 'dark');
+        await appSettings.setInt('ui.fontSize', 16);
 
-        expect(Settings.getString('ui.theme'), equals('dark'));
-        expect(Settings.getInt('ui.fontSize'), equals(16));
+        expect(appSettings.getString('ui.theme'), equals('dark'));
+        expect(appSettings.getInt('ui.fontSize'), equals(16));
       });
 
       test('should support batch operations', () async {
@@ -666,11 +667,11 @@ void main() {
           ],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Batch set multiple values
-        await Settings.setMultiple({
+        await appSettings.setMultiple({
           'batch.flag1': true,
           'batch.flag2': true,
           'batch.number': 42,
@@ -678,10 +679,10 @@ void main() {
         });
 
         // Verify all changes
-        expect(Settings.getBool('batch.flag1'), isTrue);
-        expect(Settings.getBool('batch.flag2'), isTrue);
-        expect(Settings.getInt('batch.number'), equals(42));
-        expect(Settings.getString('batch.text'), equals('batch updated'));
+        expect(appSettings.getBool('batch.flag1'), isTrue);
+        expect(appSettings.getBool('batch.flag2'), isTrue);
+        expect(appSettings.getInt('batch.number'), equals(42));
+        expect(appSettings.getString('batch.text'), equals('batch updated'));
       });
 
       test('should reset individual settings globally', () async {
@@ -690,14 +691,14 @@ void main() {
           items: [IntSetting(key: 'value', defaultValue: 100)],
         );
 
-        Settings.register(testSettings);
-        await Settings.init();
+        appSettings.register(testSettings);
+        await appSettings.init();
 
-        await Settings.setInt('globalreset.value', 999);
-        expect(Settings.getInt('globalreset.value'), equals(999));
+        await appSettings.setInt('globalreset.value', 999);
+        expect(appSettings.getInt('globalreset.value'), equals(999));
 
-        await Settings.resetSetting('globalreset.value');
-        expect(Settings.getInt('globalreset.value'), equals(100));
+        await appSettings.resetSetting('globalreset.value');
+        expect(appSettings.getInt('globalreset.value'), equals(100));
       });
 
       test('should reset entire groups globally', () async {
@@ -709,19 +710,19 @@ void main() {
           ],
         );
 
-        Settings.register(groupSettings);
-        await Settings.init();
+        appSettings.register(groupSettings);
+        await appSettings.init();
 
         // Change values
-        await Settings.setBool('groupreset.flag', true);
-        await Settings.setInt('groupreset.count', 25);
+        await appSettings.setBool('groupreset.flag', true);
+        await appSettings.setInt('groupreset.count', 25);
 
         // Reset entire group
-        await Settings.resetGroup('groupreset');
+        await appSettings.resetGroup('groupreset');
 
         // Verify defaults restored
-        expect(Settings.getBool('groupreset.flag'), isFalse);
-        expect(Settings.getInt('groupreset.count'), equals(5));
+        expect(appSettings.getBool('groupreset.flag'), isFalse);
+        expect(appSettings.getInt('groupreset.count'), equals(5));
       });
 
       test('should reset all settings globally', () async {
@@ -735,20 +736,20 @@ void main() {
           items: [IntSetting(key: 'setting', defaultValue: 10)],
         );
 
-        Settings.register(group1);
-        Settings.register(group2);
-        await Settings.init();
+        appSettings.register(group1);
+        appSettings.register(group2);
+        await appSettings.init();
 
         // Change values in both groups
-        await Settings.setBool('group1.setting', true);
-        await Settings.setInt('group2.setting', 50);
+        await appSettings.setBool('group1.setting', true);
+        await appSettings.setInt('group2.setting', 50);
 
         // Reset everything
-        await Settings.resetAll();
+        await appSettings.resetAll();
 
         // Verify all defaults restored
-        expect(Settings.getBool('group1.setting'), isFalse);
-        expect(Settings.getInt('group2.setting'), equals(10));
+        expect(appSettings.getBool('group1.setting'), isFalse);
+        expect(appSettings.getInt('group2.setting'), equals(10));
       });
 
       test('should handle invalid storage keys', () async {
@@ -757,24 +758,24 @@ void main() {
           items: [BoolSetting(key: 'test', defaultValue: true)],
         );
 
-        Settings.register(testSettings);
-        await Settings.init();
+        appSettings.register(testSettings);
+        await appSettings.init();
 
         // Missing dot notation
         expect(
-          () => Settings.getBool('invalidkey'),
+          () => appSettings.getBool('invalidkey'),
           throwsA(isA<ArgumentError>()),
         );
 
         // Non-existent group
         expect(
-          () => Settings.getBool('nonexistent.setting'),
+          () => appSettings.getBool('nonexistent.setting'),
           throwsA(isA<SettingNotFoundException>()),
         );
 
         // Non-existent setting in valid group
         expect(
-          () => Settings.getBool('invalid.nonexistent'),
+          () => appSettings.getBool('invalid.nonexistent'),
           throwsA(isA<SettingNotFoundException>()),
         );
       });
@@ -785,11 +786,11 @@ void main() {
           items: [BoolSetting(key: 'test', defaultValue: true)],
         );
 
-        Settings.register(testSettings);
-        await Settings.init();
+        appSettings.register(testSettings);
+        await appSettings.init();
 
         // This should not throw
-        Settings.dispose();
+        appSettings.dispose();
       });
     });
 
@@ -803,21 +804,21 @@ void main() {
           ],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Correct types should work
-        expect(Settings.getBool('types.flag'), isTrue);
-        expect(Settings.getInt('types.number'), equals(42));
+        expect(appSettings.getBool('types.flag'), isTrue);
+        expect(appSettings.getInt('types.number'), equals(42));
 
         // Wrong types should throw
         expect(
-          () => Settings.getInt('types.flag'), // flag is bool, not int
+          () => appSettings.getInt('types.flag'), // flag is bool, not int
           throwsA(isA<ArgumentError>()),
         );
 
         expect(
-          () => Settings.getBool('types.number'), // number is int, not bool
+          () => appSettings.getBool('types.number'), // number is int, not bool
           throwsA(isA<ArgumentError>()),
         );
       });
@@ -834,16 +835,16 @@ void main() {
           ],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Valid values should work
-        await Settings.setDouble('validation.percentage', 0.75);
-        expect(Settings.getDouble('validation.percentage'), equals(0.75));
+        await appSettings.setDouble('validation.percentage', 0.75);
+        expect(appSettings.getDouble('validation.percentage'), equals(0.75));
 
         // Invalid values should throw with descriptive message
         try {
-          await Settings.setDouble('validation.percentage', 1.5);
+          await appSettings.setDouble('validation.percentage', 1.5);
           fail('Should have thrown SettingValidationException');
         } catch (e) {
           expect(e, isA<SettingValidationException>());
@@ -864,19 +865,19 @@ void main() {
           ],
         );
 
-        Settings.register(settings);
-        await Settings.init();
+        appSettings.register(settings);
+        await appSettings.init();
 
         // Set a valid value
-        await Settings.setInt('preserve.bounded', 75);
-        expect(Settings.getInt('preserve.bounded'), equals(75));
+        await appSettings.setInt('preserve.bounded', 75);
+        expect(appSettings.getInt('preserve.bounded'), equals(75));
 
         // Attempt invalid value
         try {
-          await Settings.setInt('preserve.bounded', 150);
+          await appSettings.setInt('preserve.bounded', 150);
         } catch (e) {
           // Validation should fail, value should remain unchanged
-          expect(Settings.getInt('preserve.bounded'), equals(75));
+          expect(appSettings.getInt('preserve.bounded'), equals(75));
         }
       });
     });
@@ -892,14 +893,14 @@ void main() {
           ],
         );
 
-        Settings.register(settings1);
-        await Settings.init();
+        appSettings.register(settings1);
+        await appSettings.init();
 
-        await Settings.setBool('persist.flag', true);
-        await Settings.setString('persist.text', 'persisted');
+        await appSettings.setBool('persist.flag', true);
+        await appSettings.setString('persist.text', 'persisted');
 
         // Dispose current instance
-        Settings.dispose();
+        appSettings.dispose();
 
         // Create new instance with same key structure
         final settings2 = SettingsGroup.forTesting(
@@ -910,12 +911,12 @@ void main() {
           ],
         );
 
-        Settings.register(settings2);
-        await Settings.init();
+        appSettings.register(settings2);
+        await appSettings.init();
 
         // Values should be persisted
-        expect(Settings.getBool('persist.flag'), isTrue);
-        expect(Settings.getString('persist.text'), equals('persisted'));
+        expect(appSettings.getBool('persist.flag'), isTrue);
+        expect(appSettings.getString('persist.text'), equals('persisted'));
       });
 
       test('should use default values for new settings', () async {
@@ -925,11 +926,11 @@ void main() {
           items: [BoolSetting(key: 'existing', defaultValue: false)],
         );
 
-        Settings.register(initialSettings);
-        await Settings.init();
+        appSettings.register(initialSettings);
+        await appSettings.init();
 
-        await Settings.setBool('expand.existing', true);
-        Settings.dispose();
+        await appSettings.setBool('expand.existing', true);
+        appSettings.dispose();
 
         // Create expanded settings with new setting
         final expandedSettings = SettingsGroup.forTesting(
@@ -940,14 +941,14 @@ void main() {
           ],
         );
 
-        Settings.register(expandedSettings);
-        await Settings.init();
+        appSettings.register(expandedSettings);
+        await appSettings.init();
 
         // Existing setting should retain value
-        expect(Settings.getBool('expand.existing'), isTrue);
+        expect(appSettings.getBool('expand.existing'), isTrue);
 
         // New setting should use default
-        expect(Settings.getInt('expand.newSetting'), equals(42));
+        expect(appSettings.getInt('expand.newSetting'), equals(42));
       });
     });
   });

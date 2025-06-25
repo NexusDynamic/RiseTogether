@@ -7,12 +7,18 @@ import 'package:rise_together/src/components/ball.dart';
 import 'package:rise_together/src/components/paddle.dart';
 import 'package:rise_together/src/components/target.dart';
 import 'package:rise_together/src/components/wall.dart';
-import 'package:rise_together/config.dart';
 import 'package:rise_together/src/models/game_state.dart';
+import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/settings/app_settings.dart';
 
 /// Main world container for split screen - extends DecoratedWorld to be compatible with WorldRoute
 class SplitScreenLevelPage extends DecoratedWorld
-    with HasGameReference<RiseTogetherGame>, TapCallbacks, DragCallbacks {
+    with
+        HasGameReference<RiseTogetherGame>,
+        TapCallbacks,
+        DragCallbacks,
+        AppLogging,
+        AppSettings {
   final String localTeamId;
   final String remoteTeamId;
 
@@ -44,7 +50,9 @@ class SplitScreenLevelPage extends DecoratedWorld
 
   @override
   Future<void> onLoad() async {
-    Log.log.fine('SplitScreenLevelPage onLoad started');
+    appLog.fine('SplitScreenLevelPage onLoad started');
+    // Initialize app settings
+    await initSettings();
 
     // Force reset camera position to origin before getting dimensions
     game.camera.viewfinder.position = Vector2.zero();
@@ -55,7 +63,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     worldHeight = visibleRect.height;
     halfScreenWidth = worldWidth / 2;
 
-    Log.log.fine('Visible world: width=$worldWidth, height=$worldHeight');
+    appLog.fine('Visible world: width=$worldWidth, height=$worldHeight');
 
     // Setup UI components in the viewport (not the world)
     statusText = TextComponent(
@@ -93,7 +101,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     // Set initial ball and paddle positions
     final ballPositionY = worldHeight * 0.6; // Lower to ensure visibility
     final paddlePositionY =
-        ballPositionY + Config.ballRadius * 3; // Below the ball
+        ballPositionY + appSettings['ball_radius'] * 3; // Below the ball
 
     // Create team states
     localTeamState = TeamState(
@@ -138,35 +146,35 @@ class SplitScreenLevelPage extends DecoratedWorld
       });
       game.lslService!.remotePlayerInputStream.listen((input) {
         // Handle remote player input if needed
-        Log.log.fine('Remote player input: $input');
+        appLog.fine('Remote player input: $input');
         updateRemoteTeamByInput(input);
       });
     }
 
     debugText.text =
         'Debug: Setup complete. L paddle: ${localPaddle?.position}, R paddle: ${remotePaddle?.position}';
-    Log.log.fine('SplitScreenLevelPage onLoad completed');
+    appLog.fine('SplitScreenLevelPage onLoad completed');
 
     return super.onLoad();
   }
 
   Future<void> setupLocalTeam() async {
-    Log.log.fine('Setting up local team');
+    appLog.fine('Setting up local team');
     final leftCenter = worldWidth * 0.25; // 1/4 of the way across
 
     // Ball - centered on the left side horizontally
     final ballPos = Vector2(leftCenter, localTeamState.ballPosition.y);
-    Log.log.fine('Local ball position: $ballPos');
+    appLog.fine('Local ball position: $ballPos');
 
     localBall = Ball(
-      radius: Config.ballRadius,
+      radius: appSettings['ball_radius'],
       paint: Paint()..color = const Color(0xFFFF0000),
       pos: ballPos,
     );
 
     // Paddle - place it below the ball
     final paddleY = localTeamState.paddlePosition.y;
-    final paddleWidth = 10.0 * Config.ballRadius;
+    final paddleWidth = 10.0 * appSettings['ball_radius'];
     final paddleHeight = 1.0;
 
     final paddlePos1 = Vector2(leftCenter - paddleWidth / 2, paddleY);
@@ -175,13 +183,13 @@ class SplitScreenLevelPage extends DecoratedWorld
       paddleY + paddleHeight,
     );
 
-    Log.log.fine('Local paddle from $paddlePos1 to $paddlePos2');
+    appLog.fine('Local paddle from $paddlePos1 to $paddlePos2');
     localPaddle = Paddle(paddlePos1, paddlePos2);
 
     // Target - above the paddle
     final targetPos = Vector2(leftCenter, worldHeight * 0.2);
     final target = Target(
-      Config.ballRadius * 3,
+      appSettings['ball_radius'] * 3,
       targetPos,
       paint: Paint()..color = const Color(0xFF00FF00),
     );
@@ -193,29 +201,29 @@ class SplitScreenLevelPage extends DecoratedWorld
     add(localPaddle!);
 
     // Paddle isn't initialized yet
-    // Log.log.fine(
+    // appLog.fine(
     //   'Local team setup complete. Paddle at ${localPaddle!.position}',
     // );
     debugText.text = 'Local paddle added at: $paddlePos1 to $paddlePos2';
   }
 
   Future<void> setupRemoteTeam() async {
-    Log.log.fine('Setting up remote team');
+    appLog.fine('Setting up remote team');
     final rightCenter = worldWidth * 0.75; // 3/4 of the way across
 
     // Ball - centered on the right side horizontally
     final ballPos = Vector2(rightCenter, remoteTeamState.ballPosition.y);
-    Log.log.fine('Remote ball position: $ballPos');
+    appLog.fine('Remote ball position: $ballPos');
 
     remoteBall = Ball(
-      radius: Config.ballRadius,
+      radius: appSettings['ball_radius'],
       paint: Paint()..color = const Color(0xFF0000FF),
       pos: ballPos,
     );
 
     // Paddle - place it below the ball
     final paddleY = remoteTeamState.paddlePosition.y;
-    final paddleWidth = 10.0 * Config.ballRadius;
+    final paddleWidth = 10.0 * appSettings['ball_radius'];
     final paddleHeight = 1.0;
 
     final paddlePos1 = Vector2(rightCenter - paddleWidth / 2, paddleY);
@@ -224,13 +232,13 @@ class SplitScreenLevelPage extends DecoratedWorld
       paddleY + paddleHeight,
     );
 
-    Log.log.fine('Remote paddle from $paddlePos1 to $paddlePos2');
+    appLog.fine('Remote paddle from $paddlePos1 to $paddlePos2');
     remotePaddle = Paddle(paddlePos1, paddlePos2);
 
     // Target - above the paddle
     final targetPos = Vector2(rightCenter, worldHeight * 0.2);
     final target = Target(
-      Config.ballRadius * 3,
+      appSettings['ball_radius'] * 3,
       targetPos,
       paint: Paint()..color = const Color(0xFFFF9900),
     );
@@ -242,7 +250,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     add(remotePaddle!);
 
     // Paddle isn't initialized yet
-    // Log.log.fine(
+    // appLog.fine(
     //   'Remote team setup complete. Paddle at ${remotePaddle!.position}',
     // );
   }
@@ -267,7 +275,7 @@ class SplitScreenLevelPage extends DecoratedWorld
           ? const Color.fromARGB(255, 255, 0, 0) // Red for local
           : const Color.fromARGB(255, 0, 0, 255); // Blue for remote
 
-    Log.log.fine(
+    appLog.fine(
       '${isLocalTeam ? "Local" : "Remote"} boundaries: TL:$topLeft, TR:$topRight, BR:$bottomRight, BL:$bottomLeft',
     );
 
@@ -297,7 +305,7 @@ class SplitScreenLevelPage extends DecoratedWorld
   void handleTap(Vector2 tapPos) {
     debugText.text = 'Tap at: $tapPos';
 
-    Log.log.fine('Tap position: $tapPos, worldWidth: $worldWidth');
+    appLog.fine('Tap position: $tapPos, worldWidth: $worldWidth');
 
     // Check if we're on the left half of the screen
     if (tapPos.x < worldWidth / 2) {
@@ -305,13 +313,13 @@ class SplitScreenLevelPage extends DecoratedWorld
 
       // Determine if left or right side of the paddle
       if (tapPos.x < leftQuarter) {
-        Log.log.fine('Pressing local paddle LEFT');
+        appLog.fine('Pressing local paddle LEFT');
         localPaddle!.pressLeft();
         localTeamState.playerInputs[game.participantId] = "left";
         game.lslService?.sendPlayerInput("left");
         debugText.text = 'Left paddle LEFT pressed';
       } else {
-        Log.log.fine('Pressing local paddle RIGHT');
+        appLog.fine('Pressing local paddle RIGHT');
         localPaddle!.pressRight();
         localTeamState.playerInputs[game.participantId] = "right";
         game.lslService?.sendPlayerInput("right");
@@ -330,7 +338,7 @@ class SplitScreenLevelPage extends DecoratedWorld
       final tapPos = game.screenToWorld(event.canvasPosition);
       handleTap(tapPos);
     } catch (e) {
-      Log.log.warning('Error in onTapDown: $e');
+      appLog.warning('Error in onTapDown: $e');
       debugText.text = 'Error: $e';
     }
   }
@@ -345,7 +353,7 @@ class SplitScreenLevelPage extends DecoratedWorld
       final dragPos = game.screenToWorld(event.canvasPosition);
       handleTap(dragPos);
     } catch (e) {
-      Log.log.warning('Error in onDragStart: $e');
+      appLog.warning('Error in onDragStart: $e');
       debugText.text = 'Error: $e';
     }
   }
@@ -378,7 +386,7 @@ class SplitScreenLevelPage extends DecoratedWorld
         // Update world elements based on remote team's distance
         updateRemoteWorldElements(newState.distance);
       } catch (e) {
-        Log.log.warning('Error updating remote team: $e');
+        appLog.warning('Error updating remote team: $e');
       }
     }
   }
@@ -454,7 +462,7 @@ class SplitScreenLevelPage extends DecoratedWorld
       final remoteDistance = remoteTeamState.distance.toStringAsFixed(1);
       scoreText.text = 'Local: ${localDistance}m | Remote: ${remoteDistance}m';
     } catch (e) {
-      Log.log.warning('Error in update: $e');
+      appLog.warning('Error in update: $e');
       debugText.text = 'Update error: $e';
     }
   }
@@ -476,7 +484,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     try {
       handleTapUp();
     } catch (e) {
-      Log.log.warning('Error in onTapUp: $e');
+      appLog.warning('Error in onTapUp: $e');
       debugText.text = 'Release error: $e';
     }
   }
@@ -489,7 +497,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     try {
       handleTapUp();
     } catch (e) {
-      Log.log.warning('Error in onDragEnd: $e');
+      appLog.warning('Error in onDragEnd: $e');
       debugText.text = 'Release error: $e';
     }
   }
@@ -502,7 +510,7 @@ class SplitScreenLevelPage extends DecoratedWorld
     try {
       handleTapUp();
     } catch (e) {
-      Log.log.warning('Error in onDragCancel: $e');
+      appLog.warning('Error in onDragCancel: $e');
       debugText.text = 'Release error: $e';
     }
   }

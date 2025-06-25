@@ -1,17 +1,30 @@
 import 'package:flame/components.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
-import 'package:rise_together/src/components/target.dart';
 import 'package:rise_together/src/components/wall.dart';
-import 'package:rise_together/main.dart';
+import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/game/rise_together_game.dart';
+import 'package:rise_together/src/settings/app_settings.dart';
 
-class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
+class Ball extends BodyComponent<RiseTogetherGame>
+    with ContactCallbacks, AppLogging, AppSettings {
   bool isMoving = false;
   bool isRising = false;
   final double radius;
+  @override
+  final Forge2DWorld world;
 
-  Ball({required this.radius, super.paint, Vector2? pos})
-    : startPosition = pos != null ? Vector2.copy(pos) : Vector2.zero(),
+  Ball(this.world, {required this.radius, super.paint, Vector2? pos})
+    : startPosition = pos ?? Vector2.zero(),
       super();
+
+  @override
+  Future<void> onLoad() async {
+    appLog.fine(appSettings.toString());
+    appLog.fine(
+      'Ball onLoad called with radius: $radius, startPosition: $startPosition',
+    );
+    await super.onLoad();
+  }
 
   @override
   Body createBody() {
@@ -19,68 +32,44 @@ class Ball extends BodyComponent<RiseTogetherGame> with ContactCallbacks {
       userData: this,
       type: BodyType.dynamic,
       position: startPosition,
-      linearDamping: 0.0,
+      linearDamping: 50.0,
       angularDamping: 0.8,
+      gravityOverride: Vector2(0, appSettings['physics.gravity']),
     );
     final fixtureDef = FixtureDef(
       CircleShape()..radius = radius,
-      restitution: 0.2,
+      restitution: 0.0,
       density: 1.0,
-      friction: 1.0,
+      friction: 10.0,
     );
 
     final sprite = Sprite(game.images.fromCache('ball.png'));
     add(
       SpriteComponent(
         sprite: sprite,
-        size: Vector2(2, 2),
+        size: Vector2(radius * 2, radius * 2),
         anchor: Anchor.center,
       ),
     );
-
+    renderBody = false;
     return world.createBody(bodyDef)..createFixture(fixtureDef);
   }
 
   final Vector2 startPosition;
 
-  void move(Vector2 delta) {
-    position.add(delta);
-  }
-
   @override
   void update(double dt) {
-    if (isMoving) {
-      if (isRising) {
-        body.applyLinearImpulse(Vector2(0, -400));
-        // } else {
-        //   if (position.y < startPosition.y) {
-        //     body.applyLinearImpulse(Vector2(0, 800));
-        //   } else {
-        //     position.y = startPosition.y;
-        //     isMoving = false;
-        //   }
-      }
-    }
-  }
-
-  void startMoving(bool isRising) {
-    isMoving = true;
-    this.isRising = isRising;
-  }
-
-  void stopMoving() {
-    isMoving = false;
+    super.update(dt);
   }
 
   @override
   void beginContact(Object other, Contact contact) {
-    Log.log.fine('Ball beginContact');
-    if (other is Target || other is Wall) {
-      Forge2DWorld world = game.world;
+    appLog.fine('Ball beginContact');
+    if (other is Wall) {
       // check if world is subclass of DecoratedWorld
-      if (world is DecoratedWorld) {
-        world.gameOver = true;
-      }
+      // if (world is DecoratedWorld) {
+      //   world.gameOver = true;
+      // }
     }
   }
 }

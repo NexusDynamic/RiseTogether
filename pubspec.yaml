@@ -20,6 +20,7 @@ dependencies:
   flutter_multicast_lock: ^1.1.1
   flutter_refresh_rate_control: ^0.0.3+1
   shared_preferences: ^2.5.3
+  provider: ^6.1.5
 
 dev_dependencies:
   flutter_test:
