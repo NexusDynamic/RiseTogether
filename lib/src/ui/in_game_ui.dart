@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Colors;
 import 'package:provider/provider.dart';
-import 'package:rise_together/src/components/overlay.dart';
+import 'package:rise_together/src/models/player_action.dart';
+import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
-import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
 class InGameUI extends StatelessWidget
@@ -17,7 +18,7 @@ class InGameUI extends StatelessWidget
     appLog.info('Building InGameUI overlay');
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
-    
+
     return Stack(
       children: [
         _buildTimeDisplay(context, screenWidth),
@@ -48,7 +49,11 @@ class InGameUI extends StatelessWidget
     );
   }
 
-  Widget _buildTeamControls(BuildContext context, double screenWidth, double screenHeight) {
+  Widget _buildTeamControls(
+    BuildContext context,
+    double screenWidth,
+    double screenHeight,
+  ) {
     return Positioned.fill(
       child: Row(
         children: [
@@ -83,8 +88,8 @@ class InGameUI extends StatelessWidget
   }) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
-      crossAxisAlignment: alignment == MainAxisAlignment.start 
-          ? CrossAxisAlignment.start 
+      crossAxisAlignment: alignment == MainAxisAlignment.start
+          ? CrossAxisAlignment.start
           : CrossAxisAlignment.end,
       children: [
         Padding(
@@ -115,7 +120,7 @@ class InGameUI extends StatelessWidget
           teamId: teamId,
           playerId: playerId,
           action: PaddleAction.left,
-          icon: Icons.rotate_left,
+          icon: CupertinoIcons.arrow_up_to_line,
           color: Colors.orange,
         ),
         const SizedBox(width: 10),
@@ -123,7 +128,7 @@ class InGameUI extends StatelessWidget
           teamId: teamId,
           playerId: playerId,
           action: PaddleAction.right,
-          icon: Icons.rotate_right,
+          icon: CupertinoIcons.arrow_up_to_line,
           color: Colors.blue,
         ),
       ],
@@ -156,17 +161,15 @@ class InGameUI extends StatelessWidget
             ),
           ],
         ),
-        child: Icon(
-          icon,
-          color: Colors.white,
-          size: 30,
-        ),
+        child: Icon(icon, color: Colors.white, size: 30),
       ),
     );
   }
 
   void _sendAction(int teamId, String playerId, PaddleAction action) {
-    appLog.fine('UI sending action: team=$teamId, player=$playerId, action=$action');
+    appLog.fine(
+      'UI sending action: team=$teamId, player=$playerId, action=$action',
+    );
     game.networkBridge.sendAction(teamId, playerId, action);
   }
 }

@@ -1,14 +1,9 @@
 import 'dart:async';
 import 'package:rise_together/src/game/action_system.dart';
+import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
-/// Common interface for network bridges
-abstract class NetworkBridge {
-  Future<void> initialize();
-  void sendAction(int teamId, String playerId, PaddleAction action);
-  void removePlayer(int teamId, String playerId);
-  void dispose();
-}
+import '../network_bridge.dart';
 
 /// Bridge between network layer and action system
 /// This provides the skeleton for LSL integration
@@ -57,6 +52,7 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
   }
 
   /// Setup receiver for network actions
+  // ignore: unused_element
   void _setupNetworkReceiver() {
     appLog.fine('Setting up network receiver');
 

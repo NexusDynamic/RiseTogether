@@ -1,12 +1,10 @@
 // lib/services/lsl_service.dart
 import 'dart:async';
 import 'package:liblsl/lsl.dart';
-import 'package:logging/logging.dart';
+import 'package:rise_together/src/services/log_service.dart';
 import '../models/game_state.dart';
 
-class LSLService {
-  static final Logger _log = Logger('LSLService');
-
+class LSLService with AppLogging {
   // Stream types
   static const String kPlayerInputStreamType = 'PlayerInput';
   static const String kTeamStateStreamType = 'TeamState';
@@ -95,7 +93,7 @@ class LSLService {
         // Only look for team state streams that aren't our own team
         if (!stream.sourceId.startsWith(teamId) &&
             !_remoteTeamInlets.containsKey(stream.sourceId)) {
-          _log.info('Found remote team stream: ${stream.streamName}');
+          appLog.info('Found remote team stream: ${stream.streamName}');
 
           final inlet = await LSL.createInlet(streamInfo: stream);
           _remoteTeamInlets[stream.sourceId] = inlet;
@@ -112,12 +110,12 @@ class LSLService {
               _remoteTeamStateController.add(teamState);
             });
           } else {
-            _log.warning('Unknown stream type: ${stream.streamName}');
+            appLog.warning('Unknown stream type: ${stream.streamName}');
           }
         }
       }
     } catch (e) {
-      _log.severe('Error discovering remote teams: $e');
+      appLog.severe('Error discovering remote teams: $e');
     }
   }
 
@@ -133,7 +131,7 @@ class LSLService {
           consume(sample);
         }
       } catch (e) {
-        _log.warning('Error pulling sample from $streamName: $e');
+        appLog.warning('Error pulling sample from $streamName: $e');
       }
     });
   }
@@ -142,7 +140,7 @@ class LSLService {
     try {
       _playerInputOutlet.pushSample([input]);
     } catch (e) {
-      _log.severe('Error sending player input: $e');
+      appLog.severe('Error sending player input: $e');
     }
   }
 
@@ -150,7 +148,7 @@ class LSLService {
     try {
       _teamStateOutlet.pushSample([state.encode()]);
     } catch (e) {
-      _log.severe('Error sending team state: $e');
+      appLog.severe('Error sending team state: $e');
     }
   }
 

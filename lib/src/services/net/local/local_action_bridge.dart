@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'package:rise_together/src/game/action_system.dart';
-import 'package:rise_together/src/game/network_action_bridge.dart';
+import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/services/log_service.dart';
+
+import '../network_bridge.dart';
 
 /// Local network implementation for testing without LSL
 /// Allows multiple players on the same device
-class LocalNetworkBridge with AppLogging implements NetworkBridge {
+class LocalActionBridge with AppLogging implements NetworkBridge {
   final ActionStreamManager actionManager;
-  
-  LocalNetworkBridge({required this.actionManager});
+
+  LocalActionBridge({required this.actionManager});
 
   /// Initialize local network (no-op for local testing)
   @override
@@ -20,7 +22,7 @@ class LocalNetworkBridge with AppLogging implements NetworkBridge {
   @override
   void sendAction(int teamId, String playerId, PaddleAction action) {
     appLog.fine('Local action: team=$teamId, player=$playerId, action=$action');
-    
+
     final teamStream = actionManager.getTeamStream(teamId);
     if (teamStream != null) {
       teamStream.addAction(PlayerAction(playerId, action));
@@ -41,16 +43,5 @@ class LocalNetworkBridge with AppLogging implements NetworkBridge {
   @override
   void dispose() {
     appLog.info('Disposing LocalNetworkBridge');
-  }
-}
-
-/// Factory for creating network bridges
-class NetworkBridgeFactory {
-  static NetworkActionBridge createLSLBridge(ActionStreamManager actionManager) {
-    return NetworkActionBridge(actionManager: actionManager);
-  }
-  
-  static LocalNetworkBridge createLocalBridge(ActionStreamManager actionManager) {
-    return LocalNetworkBridge(actionManager: actionManager);
   }
 }

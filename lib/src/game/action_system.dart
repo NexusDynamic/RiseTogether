@@ -1,46 +1,19 @@
 import 'dart:async';
 
-/// Action types that players can contribute to the paddle
-enum PaddleAction { left, right, none }
-
-/// Represents an action from a specific player
-class PlayerAction {
-  final String playerId;
-  final PaddleAction action;
-  final DateTime timestamp;
-
-  PlayerAction(this.playerId, this.action) : timestamp = DateTime.now();
-
-  @override
-  String toString() => 'PlayerAction($playerId, $action)';
-}
-
-/// Aggregated thrust data for a team
-class TeamThrust {
-  final double leftThrust;
-  final double rightThrust;
-  final double netThrust;
-  final int activePlayerCount;
-
-  TeamThrust({
-    required this.leftThrust,
-    required this.rightThrust,
-    required this.activePlayerCount,
-  }) : netThrust = rightThrust - leftThrust;
-
-  @override
-  String toString() => 'TeamThrust(left: $leftThrust, right: $rightThrust, net: $netThrust, players: $activePlayerCount)';
-}
+import 'package:rise_together/src/models/player_action.dart';
+import 'package:rise_together/src/models/team_thrust.dart';
 
 /// Manages action streams for a specific team
 class TeamActionStream {
   final int teamId;
   final int maxPlayers;
-  final StreamController<PlayerAction> _controller = StreamController<PlayerAction>.broadcast();
+  final StreamController<PlayerAction> _controller =
+      StreamController<PlayerAction>.broadcast();
   final Map<String, PaddleAction> _currentActions = {};
 
   Stream<PlayerAction> get actionStream => _controller.stream;
-  Stream<TeamThrust> get thrustStream => _controller.stream.map((_) => _calculateThrust());
+  Stream<TeamThrust> get thrustStream =>
+      _controller.stream.map((_) => _calculateThrust());
 
   TeamActionStream({required this.teamId, required this.maxPlayers});
 
@@ -59,9 +32,9 @@ class TeamActionStream {
     final leftCount = actions.where((a) => a == PaddleAction.left).length;
     final rightCount = actions.where((a) => a == PaddleAction.right).length;
     final activeCount = leftCount + rightCount;
-    
+
     final thrustPerPlayer = 1.0 / maxPlayers;
-    
+
     return TeamThrust(
       leftThrust: leftCount * thrustPerPlayer,
       rightThrust: rightCount * thrustPerPlayer,
@@ -79,7 +52,7 @@ class TeamActionStream {
 /// Manages multiple team action streams
 class ActionStreamManager {
   final Map<int, TeamActionStream> _teamStreams = {};
-  
+
   TeamActionStream createTeamStream(int teamId, int maxPlayers) {
     final stream = TeamActionStream(teamId: teamId, maxPlayers: maxPlayers);
     _teamStreams[teamId] = stream;

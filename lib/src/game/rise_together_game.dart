@@ -10,16 +10,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show KeyEventResult, KeyEvent;
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:logging/logging.dart' show Level;
+import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/services/log_service.dart';
-import 'package:rise_together/src/components/in_game_ui.dart';
+import 'package:rise_together/src/services/net/network_bridge.dart';
+import 'package:rise_together/src/ui/in_game_ui.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/game/world_controller.dart';
-import 'package:rise_together/src/game/network_action_bridge.dart';
-import 'package:rise_together/src/game/local_network_bridge.dart';
 import 'rise_together_world.dart';
-
-
 
 /// A provider for tracking the time passed in the game.
 class TimeProvider extends ChangeNotifier {
@@ -45,7 +43,6 @@ class RiseTogetherGame extends Forge2DGame
   final int nTeams = 2;
   late final RouterComponent router;
   final TimeProvider timeProvider = TimeProvider();
-
 
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
@@ -117,12 +114,12 @@ class RiseTogetherGame extends Forge2DGame
       world.add(paddle);
       final ball = world.buildBall();
       world.add(ball);
-      
+
       // wait for the paddle to be loaded
       await paddle.loaded;
       appLog.fine('Adding paddle to camera: ${camera.hashCode}');
       camera.follow(paddle);
-      
+
       // Connect paddle to world controller
       worldControllers[i].setPaddle(paddle);
     }
@@ -130,13 +127,16 @@ class RiseTogetherGame extends Forge2DGame
 
   Future<void> _initializeActionSystem() async {
     appLog.fine('Initializing action system');
-    
+
     // Create action stream manager
     actionManager = ActionStreamManager();
-    
+
     // Create team streams and world controllers
     for (int teamId = 0; teamId < nTeams; teamId++) {
-      final teamStream = actionManager.createTeamStream(teamId, 5); // max 5 players per team
+      final teamStream = actionManager.createTeamStream(
+        teamId,
+        5,
+      ); // max 5 players per team
       final worldController = WorldController(
         world: worlds[teamId],
         actionStream: teamStream,
@@ -144,17 +144,14 @@ class RiseTogetherGame extends Forge2DGame
       worldControllers.add(worldController);
       worldController.initialize();
     }
-    
+
     // Initialize network bridge based on configuration
-    if (useLocalNetwork) {
-      networkBridge = NetworkBridgeFactory.createLocalBridge(actionManager);
-      appLog.info('Using local network bridge for testing');
-    } else {
-      networkBridge = NetworkBridgeFactory.createLSLBridge(actionManager);
-      appLog.info('Using LSL network bridge');
-    }
+    networkBridge = NetworkBridge(
+      actionManager,
+      useLocalNetwork: useLocalNetwork,
+    );
     await networkBridge.initialize();
-    
+
     appLog.fine('Action system initialized');
   }
 
@@ -190,10 +187,10 @@ class RiseTogetherGame extends Forge2DGame
     if (!isLoaded) {
       return KeyEventResult.ignored;
     }
-    
+
     // Handle keyboard input through new action system
     _handleKeyboardActions(keysPressed);
-    
+
     return KeyEventResult.handled;
   }
 
@@ -201,15 +198,15 @@ class RiseTogetherGame extends Forge2DGame
     // For testing, send actions for team 0 (left side)
     const testPlayerId = 'keyboard_player';
     const testTeamId = 0;
-    
+
     PaddleAction action = PaddleAction.none;
-    
+
     if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
       action = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
       action = PaddleAction.right;
     }
-    
+
     // Send action through network bridge (which will route to local stream for testing)
     networkBridge.sendAction(testTeamId, testPlayerId, action);
   }
@@ -233,5 +230,4 @@ class RiseTogetherGame extends Forge2DGame
     actionManager.dispose();
     super.onRemove();
   }
-
 }
