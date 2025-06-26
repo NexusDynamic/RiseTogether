@@ -39,7 +39,7 @@ class Ball extends BodyComponent<RiseTogetherGame>
     final fixtureDef = FixtureDef(
       CircleShape()..radius = radius,
       restitution: 0.0,
-      density: 1.0,
+      density: 10.0,
       friction: 10.0,
     );
 
