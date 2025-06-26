@@ -442,6 +442,9 @@ class CompiledApp {
       _1299: () => new WeakMap(),
       _1300: (map, o) => map.get(o),
       _1301: (map, o, v) => map.set(o, v),
+      _1302: x0 => new WeakRef(x0),
+      _1303: x0 => x0.deref(),
+      _1310: () => globalThis.WeakRef,
       _1314: s => JSON.stringify(s),
       _1315: s => printToConsole(s),
       _1316: (o, p, r) => o.replaceAll(p, () => r),
@@ -459,10 +462,16 @@ class CompiledApp {
       _1333: a => a.pop(),
       _1334: (a, i) => a.splice(i, 1),
       _1335: (a, s) => a.join(s),
+      _1336: (a, s, e) => a.slice(s, e),
       _1339: a => a.length,
       _1341: (a, i) => a[i],
       _1342: (a, i, v) => a[i] = v,
       _1344: o => o instanceof ArrayBuffer,
+      _1345: (o, offsetInBytes, lengthInBytes) => {
+        var dst = new ArrayBuffer(lengthInBytes);
+        new Uint8Array(dst).set(new Uint8Array(o, offsetInBytes, lengthInBytes));
+        return new DataView(dst);
+      },
       _1347: o => o instanceof Uint8Array,
       _1348: (o, start, length) => new Uint8Array(o.buffer, o.byteOffset + start, length),
       _1349: o => o instanceof Int8Array,
