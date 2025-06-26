@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flame/components.dart';
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/game/rise_together_world.dart';
 import 'package:rise_together/src/components/paddle.dart';
@@ -34,8 +35,11 @@ class WorldController with AppLogging {
     }
 
     // Update paddle with new thrust values
-    _paddle!.setThrust(thrust.leftThrust, thrust.rightThrust);
-
+    final totalThrust = _paddle!.setThrust(
+      thrust.leftThrust,
+      thrust.rightThrust,
+    );
+    world.parallax.parallax!.baseVelocity.setFrom(Vector2(0, -totalThrust));
     appLog.finest('Updated paddle thrust: ${thrust.toString()}');
   }
 

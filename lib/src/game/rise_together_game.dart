@@ -1,13 +1,10 @@
-import 'dart:ui' show Color, PaintingStyle;
-
 import 'package:flame/camera.dart';
 import 'package:flame/components.dart';
 import 'package:flame/flame.dart';
 import 'package:flame/game.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flame/events.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show KeyEventResult, KeyEvent;
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/models/player_action.dart';
@@ -60,9 +57,8 @@ class RiseTogetherGame extends Forge2DGame
     : super(gravity: Vector2.zero(), zoom: 10);
 
   List<Forge2DWorld> _buildWorlds() {
-    final viewportSize = alignedVector(longMultiplier: 1 / nTeams);
     for (int i = 0; i < nTeams; i++) {
-      final world = RiseTogetherWorld(level: level, viewportSize: viewportSize);
+      final world = RiseTogetherWorld(level: level);
       worlds.add(world);
     }
     return worlds;
@@ -88,20 +84,21 @@ class RiseTogetherGame extends Forge2DGame
     final viewportSize = alignedVector(longMultiplier: 1 / nTeams);
     final zoomLevel = viewportSize.x / level.horizontalWidth;
     for (int index = 0; index < worlds.length; index++) {
-      cameras.add(
-        CameraComponent(
-            world: worlds[index],
-            viewport: FixedSizeViewport(viewportSize.x, viewportSize.y)
-              ..position = alignedVector(
-                longMultiplier: index == 0 ? 0.0 : 1 / (index + 1),
-                shortMultiplier: 0.0,
-              )
-              //..size = Vector2(size.x / 2, size.y)
-              ..add(viewportRimGenerator(viewportSize)),
-          )
-          ..viewfinder.anchor = Anchor.center
-          ..viewfinder.zoom = zoomLevel,
-      );
+      final worldCamera =
+          CameraComponent(
+              world: worlds[index],
+              viewport: FixedSizeViewport(viewportSize.x, viewportSize.y)
+                ..position = alignedVector(
+                  longMultiplier: index == 0 ? 0.0 : 1 / (index + 1),
+                  shortMultiplier: 0.0,
+                )
+                //..size = Vector2(size.x / 2, size.y)
+                ..add(viewportRimGenerator(viewportSize)),
+            )
+            ..viewfinder.anchor = Anchor.center
+            ..viewfinder.zoom = zoomLevel;
+      cameras.add(worldCamera);
+      (worlds[index] as RiseTogetherWorld).setWorldCamera(worldCamera);
     }
     return cameras;
   }
@@ -165,6 +162,7 @@ class RiseTogetherGame extends Forge2DGame
     world.removeFromParent();
     children.register<CameraComponent>();
     await Flame.images.load('ball.png');
+
     _buildCameras(_buildWorlds());
 
     // Initialize action system before adding paddles

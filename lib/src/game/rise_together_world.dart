@@ -1,7 +1,7 @@
-import 'dart:ui';
-
 import 'package:flame/components.dart';
+import 'package:flame/parallax.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:rise_together/src/components/ball.dart';
 import 'package:rise_together/src/components/wall.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -23,10 +23,16 @@ class Level1 extends RiseTogetherLevel {
 class RiseTogetherWorld extends Forge2DWorld
     with HasGameReference<RiseTogetherGame>, AppLogging {
   final RiseTogetherLevel level;
-  final Vector2 viewportSize;
+  late final ParallaxComponent parallax;
+  late CameraComponent _worldCamera;
 
-  RiseTogetherWorld({required this.level, required this.viewportSize})
-    : super(gravity: Vector2.zero());
+  RiseTogetherWorld({required this.level}) : super(gravity: Vector2.zero());
+
+  void setWorldCamera(CameraComponent camera) {
+    _worldCamera = camera;
+  }
+
+  CameraComponent get worldCamera => _worldCamera;
 
   Paddle buildPaddle() {
     final paddleStart = Vector2(-0.1 * level.horizontalWidth, -0.01);
@@ -99,8 +105,19 @@ class RiseTogetherWorld extends Forge2DWorld
   }
 
   @override
-  void onLoad() {
+  Future<void> onLoad() async {
     super.onLoad();
+    parallax = await game.loadParallaxComponent(
+      [
+        ParallaxImageData('stars_0.png'),
+        ParallaxImageData('stars_1.png'),
+        ParallaxImageData('stars_2.png'),
+      ],
+      baseVelocity: Vector2(0, 0),
+      repeat: ImageRepeat.repeat,
+      velocityMultiplierDelta: Vector2(0, 5),
+    );
+    worldCamera.backdrop.add(parallax);
     _addBoundaries(
       level.horizontalWidth,
       level.horizontalWidth * level.verticalMultiplier,

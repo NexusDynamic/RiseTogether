@@ -38,15 +38,16 @@ class Paddle extends BodyComponent<RiseTogetherGame> with AppLogging {
   }
 
   /// Set thrust values from action system
-  void setThrust(double leftThrust, double rightThrust) {
+  double setThrust(double leftThrust, double rightThrust) {
     thrustLeft = leftThrust;
     thrustRight = rightThrust;
+    return thrustLeft + thrustRight;
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    
+
     // If no thrust, stop movement
     if (thrustLeft == 0.0 && thrustRight == 0.0) {
       body.clearForces();
@@ -82,5 +83,4 @@ class Paddle extends BodyComponent<RiseTogetherGame> with AppLogging {
       body.setTransform(body.position, 1.3);
     }
   }
-
 }
