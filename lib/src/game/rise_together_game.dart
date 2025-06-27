@@ -194,19 +194,31 @@ class RiseTogetherGame extends Forge2DGame
 
   void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
     // For testing, send actions for team 0 (left side)
-    const testPlayerId = 'keyboard_player';
-    const testTeamId = 0;
 
+    String testPlayerId = 'keyboard_player_1';
+    int testTeamId = 0;
     PaddleAction action = PaddleAction.none;
 
+    if (keysPressed.contains(LogicalKeyboardKey.keyA)) {
+      action = PaddleAction.left;
+    } else if (keysPressed.contains(LogicalKeyboardKey.keyD)) {
+      action = PaddleAction.right;
+    }
+
+    networkBridge.sendAction(testTeamId, testPlayerId, action);
+
+    testPlayerId = 'keyboard_player_2';
+    testTeamId = 1;
+    action = PaddleAction.none;
     if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
       action = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
       action = PaddleAction.right;
     }
 
-    // Send action through network bridge (which will route to local stream for testing)
     networkBridge.sendAction(testTeamId, testPlayerId, action);
+
+    // Send action through network bridge (which will route to local stream for testing)
   }
 
   @override

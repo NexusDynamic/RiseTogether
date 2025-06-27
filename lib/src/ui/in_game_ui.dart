@@ -58,6 +58,7 @@ class InGameUI extends StatelessWidget
       child: Row(
         children: [
           // Team 0 (Left side) controls
+          SizedBox(width: 30),
           Expanded(
             child: _buildTeamSide(
               teamId: 0,
@@ -75,6 +76,7 @@ class InGameUI extends StatelessWidget
               screenHeight: screenHeight,
             ),
           ),
+          SizedBox(width: 30),
         ],
       ),
     );
@@ -105,9 +107,9 @@ class InGameUI extends StatelessWidget
           ),
         ),
         _buildPlayerControls(teamId, 'player1'),
-        const SizedBox(height: 10),
-        _buildPlayerControls(teamId, 'player2'),
         const SizedBox(height: 20),
+        _buildPlayerControls(teamId, 'player2'),
+        const SizedBox(height: 30),
       ],
     );
   }
@@ -121,15 +123,15 @@ class InGameUI extends StatelessWidget
           playerId: playerId,
           action: PaddleAction.left,
           icon: CupertinoIcons.arrow_up_to_line,
-          color: Colors.orange,
+          color: Colors.orange.withAlpha(180),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 20),
         _buildActionButton(
           teamId: teamId,
           playerId: playerId,
           action: PaddleAction.right,
           icon: CupertinoIcons.arrow_up_to_line,
-          color: Colors.blue,
+          color: Colors.blue.withAlpha(180),
         ),
       ],
     );
@@ -142,13 +144,13 @@ class InGameUI extends StatelessWidget
     required IconData icon,
     required Color color,
   }) {
-    return GestureDetector(
-      onTapDown: (_) => _sendAction(teamId, playerId, action),
-      onTapUp: (_) => _sendAction(teamId, playerId, PaddleAction.none),
-      onTapCancel: () => _sendAction(teamId, playerId, PaddleAction.none),
+    return Listener(
+      onPointerDown: (_) => _sendAction(teamId, playerId, action),
+      onPointerUp: (_) => _sendAction(teamId, playerId, PaddleAction.none),
+      onPointerCancel: (_) => _sendAction(teamId, playerId, PaddleAction.none),
       child: Container(
-        width: 60,
-        height: 60,
+        width: 80,
+        height: 80,
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,

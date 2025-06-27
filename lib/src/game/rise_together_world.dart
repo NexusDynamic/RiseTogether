@@ -25,6 +25,8 @@ class RiseTogetherWorld extends Forge2DWorld
   final RiseTogetherLevel level;
   late final ParallaxComponent parallax;
   late CameraComponent _worldCamera;
+  late Ball ball;
+  late Paddle paddle;
 
   RiseTogetherWorld({required this.level}) : super(gravity: Vector2.zero());
 
@@ -35,23 +37,36 @@ class RiseTogetherWorld extends Forge2DWorld
   CameraComponent get worldCamera => _worldCamera;
 
   Paddle buildPaddle() {
-    final paddleStart = Vector2(-0.1 * level.horizontalWidth, -0.01);
+    final paddleStart = Vector2(-0.15 * level.horizontalWidth, -0.01);
     final paddleEnd = Vector2(
-      0.1 * level.horizontalWidth,
-      -0.01 - 0.01 * level.horizontalWidth,
+      0.15 * level.horizontalWidth,
+      -0.01 - 0.02 * level.horizontalWidth,
     );
-    final paddle = Paddle(this, paddleStart, paddleEnd);
+    paddle = Paddle(this, paddleStart, paddleEnd);
     appLog.fine('Building paddle with start: $paddleStart, end: $paddleEnd.');
     return paddle;
   }
 
   Ball buildBall() {
-    final ball = Ball(
+    ball = Ball(
       this,
-      radius: 0.01 * level.horizontalWidth,
-      pos: Vector2(0.0, -0.02 - 0.01 * level.horizontalWidth),
+      radius: 0.02 * level.horizontalWidth,
+      pos: Vector2(0.0, -1),
     );
     return ball;
+  }
+
+  void restartLevel() {
+    appLog.fine(
+      'Restarting level with horizontal width: ${level.horizontalWidth}.',
+    );
+
+    // set ball and paddle to starting positions
+    ball.setPosition(Vector2(0.0, -1));
+    ball.stopMovement();
+    // @TODO: this should not be hardcoded, use conf or props
+    paddle.setPosition(Vector2(0, -0.01 - 0.01 * level.horizontalWidth));
+    paddle.setAngle(0);
   }
 
   void _addBoundaries(double width, double height) {

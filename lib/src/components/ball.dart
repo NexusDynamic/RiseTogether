@@ -1,17 +1,19 @@
 import 'package:flame/components.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
+import 'package:rise_together/src/attributes/positionable.dart';
 import 'package:rise_together/src/components/wall.dart';
+import 'package:rise_together/src/game/rise_together_world.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 
 class Ball extends BodyComponent<RiseTogetherGame>
-    with ContactCallbacks, AppLogging, AppSettings {
+    with ContactCallbacks, AppLogging, AppSettings, PositionableBodyComponent {
   bool isMoving = false;
   bool isRising = false;
   final double radius;
   @override
-  final Forge2DWorld world;
+  final RiseTogetherWorld world;
 
   Ball(this.world, {required this.radius, super.paint, Vector2? pos})
     : startPosition = pos ?? Vector2.zero(),
@@ -32,14 +34,14 @@ class Ball extends BodyComponent<RiseTogetherGame>
       userData: this,
       type: BodyType.dynamic,
       position: startPosition,
-      linearDamping: 50.0,
+      linearDamping: 1.0,
       angularDamping: 0.8,
       gravityOverride: Vector2(0, appSettings['physics.gravity']),
     );
     final fixtureDef = FixtureDef(
       CircleShape()..radius = radius,
       restitution: 0.0,
-      density: 10.0,
+      density: 5.0,
       friction: 10.0,
     );
 
@@ -47,7 +49,7 @@ class Ball extends BodyComponent<RiseTogetherGame>
     add(
       SpriteComponent(
         sprite: sprite,
-        size: Vector2(radius * 2, radius * 2),
+        size: Vector2(2 * radius, 2 * radius),
         anchor: Anchor.center,
       ),
     );
@@ -60,16 +62,14 @@ class Ball extends BodyComponent<RiseTogetherGame>
   @override
   void update(double dt) {
     super.update(dt);
+    applyPendingTransforms();
   }
 
   @override
   void beginContact(Object other, Contact contact) {
     appLog.fine('Ball beginContact');
     if (other is Wall) {
-      // check if world is subclass of DecoratedWorld
-      // if (world is DecoratedWorld) {
-      //   world.gameOver = true;
-      // }
+      world.restartLevel();
     }
   }
 }

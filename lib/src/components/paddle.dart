@@ -1,8 +1,11 @@
 import 'package:flame_forge2d/flame_forge2d.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:rise_together/src/attributes/positionable.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
-class Paddle extends BodyComponent<RiseTogetherGame> with AppLogging {
+class Paddle extends BodyComponent<RiseTogetherGame>
+    with AppLogging, PositionableBodyComponent {
   final Vector2 _start;
   final double _w;
   final double _h;
@@ -13,24 +16,26 @@ class Paddle extends BodyComponent<RiseTogetherGame> with AppLogging {
   double thrustRight = 0.0;
 
   Paddle(this.world, this._start, _end)
-    : _w = (_end.x - _start.x) / 2, // Ensure minimum width
-      _h = (_end.y - _start.y) / 2; // Ensure minimum height
-
-  // Helper function to ensure we have a minimum value
-  static double max(double a, double b) => a > b ? a : b;
+    : _w = (_end.x - _start.x).abs() / 2, // Ensure minimum width
+      _h = (_end.y - _start.y).abs() / 2; // Ensure minimum height
 
   @override
   Body createBody() {
     appLog.fine('Creating paddle body with w: $_w, h: $_h');
 
-    final shape = PolygonShape()..setAsBoxXY(_w, _h);
+    final shape = EdgeShape()
+      ..set(Vector2(_start.x, _start.y), Vector2(_start.x + 2 * _w, _start.y));
 
-    final fixtureDef = FixtureDef(shape, friction: 1.0, density: 10.0);
+    final fixtureDef = FixtureDef(shape, friction: 20.0, density: 1.0);
     final bodyDef = BodyDef(
       type: BodyType.kinematic,
       position: Vector2(_start.x + _w, _start.y),
       gravityOverride: Vector2(0, 0),
     );
+    paint = Paint()
+      ..color = const Color.fromARGB(255, 0, 0, 255)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = polygonRadius * 1.5;
 
     appLog.fine('Paddle position: ${bodyDef.position}');
     appLog.fine('World: ${world.hashCode}');
@@ -47,6 +52,7 @@ class Paddle extends BodyComponent<RiseTogetherGame> with AppLogging {
   @override
   void update(double dt) {
     super.update(dt);
+    applyPendingTransforms();
 
     // If no thrust, stop movement
     if (thrustLeft == 0.0 && thrustRight == 0.0) {
