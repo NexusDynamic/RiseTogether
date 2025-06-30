@@ -1,6 +1,10 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Material, InkWell;
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
+import 'package:rise_together/src/models/team.dart';
+import 'package:rise_together/src/attributes/team_color_provider.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 
@@ -16,7 +20,8 @@ class SettingsUI extends StatefulWidget
   State<SettingsUI> createState() => _SettingsUIState();
 }
 
-class _SettingsUIState extends State<SettingsUI> with AppSettings {
+class _SettingsUIState extends State<SettingsUI>
+    with AppSettings, TeamColorProvider {
   bool _debugMode = true;
   double _gameScale = 0.0001;
   double _ballRadius = 1.0;
@@ -25,6 +30,10 @@ class _SettingsUIState extends State<SettingsUI> with AppSettings {
   int _tournamentRounds = 3;
   int _levelsPerRound = 5;
   bool _enableSurveys = false;
+
+  // Team colors
+  Color _teamAColor = CupertinoColors.systemBlue;
+  Color _teamBColor = CupertinoColors.systemOrange;
 
   @override
   void initState() {
@@ -42,6 +51,10 @@ class _SettingsUIState extends State<SettingsUI> with AppSettings {
       _tournamentRounds = appSettings.getInt('game.tournament_rounds');
       _levelsPerRound = appSettings.getInt('game.levels_per_round');
       _enableSurveys = appSettings.getBool('game.enable_surveys');
+
+      // Load team colors
+      _teamAColor = Color(appSettings.getInt('colors.team_a_color'));
+      _teamBColor = Color(appSettings.getInt('colors.team_b_color'));
     } catch (e) {
       widget.appLog.warning('Could not load settings: $e');
     }
@@ -283,6 +296,40 @@ class _SettingsUIState extends State<SettingsUI> with AppSettings {
               _saveSetting('game.ball_radius', value);
             },
           ),
+
+          SizedBox(height: 30),
+
+          // Team Colors Section
+          _buildSectionHeader('Team Colors'),
+          SizedBox(height: 20),
+
+          // Team A Color
+          _buildColorSetting(
+            Team.a.displayName,
+            'Primary color for ${Team.a.shortName}',
+            _teamAColor,
+            (color) {
+              setState(() {
+                _teamAColor = color;
+              });
+              _saveSetting('colors.team_a_color', color.toARGB32());
+            },
+          ),
+
+          SizedBox(height: 20),
+
+          // Team B Color
+          _buildColorSetting(
+            Team.b.displayName,
+            'Primary color for ${Team.b.shortName}',
+            _teamBColor,
+            (color) {
+              setState(() {
+                _teamBColor = color;
+              });
+              _saveSetting('colors.team_b_color', color.toARGB32());
+            },
+          ),
         ],
       ),
     );
@@ -387,6 +434,150 @@ class _SettingsUIState extends State<SettingsUI> with AppSettings {
           activeColor: Color.fromARGB(255, 0, 150, 255),
         ),
       ],
+    );
+  }
+
+  Widget _buildColorSetting(
+    String title,
+    String description,
+    Color currentColor,
+    Function(Color) onChanged,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: Color.fromARGB(255, 255, 255, 255),
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            GestureDetector(
+              onTap: () => _showColorPicker(title, currentColor, onChanged),
+              child: Container(
+                width: 40,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: currentColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Color.fromARGB(100, 255, 255, 255),
+                    width: 2,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 5),
+        Text(
+          description,
+          style: TextStyle(
+            color: Color.fromARGB(150, 255, 255, 255),
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showColorPicker(
+    String title,
+    Color currentColor,
+    Function(Color) onChanged,
+  ) {
+    showCupertinoDialog(
+      context: context,
+      builder: (BuildContext context) {
+        Color selectedColor = currentColor;
+
+        return CupertinoAlertDialog(
+          title: Text('Choose $title Color'),
+          content: SizedBox(
+            height: 300,
+            child: SingleChildScrollView(
+              child: BlockPicker(
+                pickerColor: currentColor,
+                onColorChanged: (color) {
+                  selectedColor = color;
+                },
+                availableColors: [
+                  // Cupertino system colors
+                  CupertinoColors.systemBlue,
+                  CupertinoColors.systemGreen,
+                  CupertinoColors.systemIndigo,
+                  CupertinoColors.systemOrange,
+                  CupertinoColors.systemPink,
+                  CupertinoColors.systemPurple,
+                  CupertinoColors.systemRed,
+                  CupertinoColors.systemTeal,
+                  CupertinoColors.systemYellow,
+                  CupertinoColors.systemGrey,
+                  // Additional vibrant colors
+                ],
+                itemBuilder:
+                    (
+                      Color color,
+                      bool isCurrentColor,
+                      void Function() changeColor,
+                    ) {
+                      return Container(
+                        margin: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color,
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withOpacity(0.8),
+                              offset: const Offset(1, 2),
+                              blurRadius: 5,
+                            ),
+                          ],
+                        ),
+                        child: Material(
+                          color: CupertinoColors.transparent,
+                          child: InkWell(
+                            onTap: changeColor,
+                            borderRadius: BorderRadius.circular(50),
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 210),
+                              opacity: isCurrentColor ? 1 : 0,
+                              child: Icon(
+                                CupertinoIcons.check_mark,
+                                color: useWhiteForeground(color)
+                                    ? CupertinoColors.white
+                                    : CupertinoColors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+              ),
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            CupertinoDialogAction(
+              child: Text('Select'),
+              onPressed: () {
+                onChanged(selectedColor);
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 

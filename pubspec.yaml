@@ -21,6 +21,7 @@ dependencies:
   shared_preferences: ^2.5.3
   provider: ^6.1.5
   meta: ^1.16.0
+  flutter_colorpicker: ^1.1.0
 
 dev_dependencies:
   flutter_test:

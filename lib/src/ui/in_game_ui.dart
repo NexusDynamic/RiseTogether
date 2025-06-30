@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'package:rise_together/src/models/player_action.dart';
+import 'package:rise_together/src/models/team.dart';
+import 'package:rise_together/src/attributes/team_color_provider.dart';
 import 'package:rise_together/src/ui/level_progress.dart';
 import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
@@ -10,7 +12,7 @@ import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 
 class InGameUI extends StatelessWidget
-    with AppLogging, AppSettings
+    with AppLogging, AppSettings, TeamColorProvider
     implements RiseTogetherOverlay {
   static final String overlayID = 'inGameUI';
   final RiseTogetherGame game;
@@ -106,9 +108,9 @@ class InGameUI extends StatelessWidget
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildProgressIndicator(context, 0, screenHeight),
+                _buildProgressIndicator(context, Team.a.id, screenHeight),
                 SizedBox(width: 20),
-                _buildProgressIndicator(context, 1, screenHeight),
+                _buildProgressIndicator(context, Team.b.id, screenHeight),
               ],
             ),
           ),
@@ -159,7 +161,7 @@ class InGameUI extends StatelessWidget
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          side == 'left' ? 'Left' : 'Right',
+          side == 'left' ? Team.a.shortName : Team.b.shortName,
           style: const TextStyle(
             color: Color.fromARGB(150, 255, 255, 255),
             fontSize: 16,
@@ -169,13 +171,13 @@ class InGameUI extends StatelessWidget
         ),
         const SizedBox(height: 10),
         _buildActionButton(
-          teamId: 0, // Current player is always team 0 (left team from their perspective)
+          teamId: side == 'left' ? Team.a.id : Team.b.id,
           playerId: 'currentPlayer',
           action: side == 'left' ? PaddleAction.left : PaddleAction.right,
           icon: CupertinoIcons.arrow_up_to_line,
           color: side == 'left' 
-            ? Color.fromARGB(180, 255, 85, 0)
-            : Color.fromARGB(180, 0, 85, 255),
+            ? getTeamColorWithOpacity(Team.a, 0.8)
+            : getTeamColorWithOpacity(Team.b, 0.8),
           size: 60,
         ),
       ],
@@ -202,19 +204,19 @@ class InGameUI extends StatelessWidget
             children: [
               Column(
                 children: [
-                  Text('Team 1', style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
-                  _buildPlayerControls(0, 'player1'),
+                  Text(Team.a.shortName, style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
+                  _buildPlayerControls(Team.a.id, 'player1'),
                   const SizedBox(height: 10),
-                  _buildPlayerControls(0, 'player2'),
+                  _buildPlayerControls(Team.a.id, 'player2'),
                 ],
               ),
               const SizedBox(width: 40),
               Column(
                 children: [
-                  Text('Team 2', style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
-                  _buildPlayerControls(1, 'player1'),
+                  Text(Team.b.shortName, style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
+                  _buildPlayerControls(Team.b.id, 'player1'),
                   const SizedBox(height: 10),
-                  _buildPlayerControls(1, 'player2'),
+                  _buildPlayerControls(Team.b.id, 'player2'),
                 ],
               ),
             ],
@@ -243,7 +245,7 @@ class InGameUI extends StatelessWidget
           playerId: playerId,
           action: PaddleAction.left,
           icon: CupertinoIcons.arrow_up_to_line,
-          color: Color.fromARGB(180, 255, 85, 0),
+          color: getTeamColorWithOpacity(Team.fromId(teamId), 0.7),
         ),
         const SizedBox(width: 20),
         _buildActionButton(
@@ -251,7 +253,7 @@ class InGameUI extends StatelessWidget
           playerId: playerId,
           action: PaddleAction.right,
           icon: CupertinoIcons.arrow_up_to_line,
-          color: Color.fromARGB(180, 0, 85, 255),
+          color: getTeamAccentColor(Team.fromId(teamId)).withValues(alpha: 0.7),
         ),
       ],
     );

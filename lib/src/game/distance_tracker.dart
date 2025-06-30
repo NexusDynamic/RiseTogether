@@ -1,18 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
+import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
 /// Tracks distance traveled by teams based on ball position
 class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
   double _distanceMultiplier = 100.0; // Default: 100 meters per game unit
-  final Map<int, double> _maxDistances = {
-    0: 0.0,
-    1: 0.0,
-  }; // team -> max distance in meters
-  final Map<int, double> _startingHeights = {
-    0: 0.0,
-    1: 0.0,
-  }; // team -> starting height
+  final Map<int, double> _maxDistances = {}; // team ID -> max distance in meters
+  final Map<int, double> _startingHeights = {}; // team ID -> starting height
 
   // For throttling UI updates
   DateTime _lastUpdate = DateTime.now();
@@ -76,6 +71,26 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
     return '${distance.toStringAsFixed(1)}m';
   }
 
+  /// Get the current max distance for a team by Team enum
+  double getDistanceForTeam(Team team) {
+    return getTeamDistance(team.id);
+  }
+
+  /// Get formatted distance string for display by Team enum
+  String getFormattedDistanceForTeam(Team team) {
+    return getFormattedDistance(team.id);
+  }
+
+  /// Set starting height by Team enum
+  void setStartingHeightForTeam(Team team, double height) {
+    setStartingHeight(team.id, height);
+  }
+
+  /// Update ball position by Team enum
+  void updateBallPositionForTeam(Team team, double currentHeight) {
+    updateBallPosition(team.id, currentHeight);
+  }
+
   /// Get both team distances for level completion
   Map<int, double> getAllDistances() {
     return Map.from(_maxDistances);
@@ -83,18 +98,22 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
 
   @override
   void reset() {
-    _maxDistances[0] = 0.0;
-    _maxDistances[1] = 0.0;
-    _startingHeights[0] = 0.0;
-    _startingHeights[1] = 0.0;
+    _maxDistances.clear();
+    _startingHeights.clear();
+    // Initialize for both teams
+    for (final team in Team.values) {
+      _maxDistances[team.id] = 0.0;
+      _startingHeights[team.id] = 0.0;
+    }
     appLog.info('Distance tracker reset');
     notifyListeners();
   }
 
   /// Reset only distances (keep starting heights for level restart)
   void resetDistances() {
-    _maxDistances[0] = 0.0;
-    _maxDistances[1] = 0.0;
+    for (final team in Team.values) {
+      _maxDistances[team.id] = 0.0;
+    }
     appLog.info('Distance tracker distances reset');
     notifyListeners();
   }

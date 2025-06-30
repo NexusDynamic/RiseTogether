@@ -1,5 +1,6 @@
 import 'game.dart';
 import 'physics.dart';
+import 'colors.dart';
 import 'settings_manager.dart';
 
 mixin class AppSettings {
@@ -11,6 +12,7 @@ mixin class AppSettings {
     _isInitialized = true;
     appSettings.register(gameSettings);
     appSettings.register(physicsSettings);
+    appSettings.register(colorSettings);
     await appSettings.init();
   }
 }

@@ -8,6 +8,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/models/player_action.dart';
+import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/services/net/network_bridge.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
@@ -16,6 +17,7 @@ import 'package:rise_together/src/game/world_controller.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/game/distance_tracker.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
+import 'package:rise_together/src/attributes/team_provider.dart';
 import 'rise_together_world.dart';
 
 /// A provider for tracking game time with countdown functionality.
@@ -67,16 +69,21 @@ class RiseTogetherGame extends Forge2DGame
         SingleGameInstance,
         AppLogging,
         AppSettings,
-        Resetable {
+        Resetable,
+        TeamProvider {
   final int nTeams = 2;
   late final RouterComponent router;
   final TimeProvider timeProvider = TimeProvider();
   final TournamentManager tournamentManager = TournamentManager();
   final DistanceTracker distanceTracker = DistanceTracker();
+  final PlayerContext _playerContext = PlayerContext();
 
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
   final List<WorldController> worldControllers = [];
+
+  @override
+  PlayerContext? get playerContext => _playerContext;
 
   late final ActionStreamManager actionManager;
   late final NetworkBridge networkBridge;
@@ -163,8 +170,9 @@ class RiseTogetherGame extends Forge2DGame
 
       // Set starting height for distance tracking
       final ballStartHeight = ball.body.position.y;
-      distanceTracker.setStartingHeight(i, ballStartHeight);
-      appLog.info('Team $i ball starting height: $ballStartHeight');
+      final team = Team.fromId(i);
+      distanceTracker.setStartingHeight(team.id, ballStartHeight);
+      appLog.info('${team.shortName} ball starting height: $ballStartHeight');
 
       // Connect paddle to world controller
       worldControllers[i].setPaddle(paddle);
@@ -257,32 +265,31 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
-    // For testing, send actions for team 0 (left side)
-
-    String testPlayerId = 'keyboard_player_1';
-    int testTeamId = 0;
-    PaddleAction action = PaddleAction.none;
+    // Team A keyboard controls (left side)
+    final teamA = Team.a;
+    final playerA = PlayerId.fromTeamAndId(teamA, 'keyboard_player_a');
+    PaddleAction actionA = PaddleAction.none;
 
     if (keysPressed.contains(LogicalKeyboardKey.keyA)) {
-      action = PaddleAction.left;
+      actionA = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.keyD)) {
-      action = PaddleAction.right;
+      actionA = PaddleAction.right;
     }
 
-    networkBridge.sendAction(testTeamId, testPlayerId, action);
+    networkBridge.sendAction(teamA.id, playerA.id, actionA);
 
-    testPlayerId = 'keyboard_player_2';
-    testTeamId = 1;
-    action = PaddleAction.none;
+    // Team B keyboard controls (right side)
+    final teamB = Team.b;
+    final playerB = PlayerId.fromTeamAndId(teamB, 'keyboard_player_b');
+    PaddleAction actionB = PaddleAction.none;
+    
     if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
-      action = PaddleAction.left;
+      actionB = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
-      action = PaddleAction.right;
+      actionB = PaddleAction.right;
     }
 
-    networkBridge.sendAction(testTeamId, testPlayerId, action);
-
-    // Send action through network bridge (which will route to local stream for testing)
+    networkBridge.sendAction(teamB.id, playerB.id, actionB);
   }
 
   @override
@@ -297,6 +304,7 @@ class RiseTogetherGame extends Forge2DGame
     for (int teamId = 0; teamId < nTeams; teamId++) {
       if (teamId < worlds.length) {
         final world = worlds[teamId];
+        final team = Team.fromId(teamId);
         if (world.ball.isMounted) {
           final ballHeight = world.ball.position.y;
           distanceTracker.updateBallPosition(teamId, ballHeight);
@@ -308,7 +316,7 @@ class RiseTogetherGame extends Forge2DGame
           // Debug logging (remove after testing)
           if (distance > 0.1) {
             appLog.info(
-              'Team $teamId - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
+              '${team.shortName} - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
             );
           }
         }
