@@ -43,6 +43,20 @@ class WorldController with AppLogging {
     appLog.finest('Updated paddle thrust: ${thrust.toString()}');
   }
 
+  Paddle get paddle {
+    if (_paddle == null) {
+      appLog.warning('Paddle is not set for team ${actionStream.teamId}');
+      throw StateError('Paddle is not set');
+    }
+    return _paddle!;
+  }
+
+  double levelProgress(double position) {
+    // Calculate progress based on paddle position
+    final progress = position.abs() / world.level.verticalMultiplier;
+    return progress.clamp(0.0, 1.0);
+  }
+
   void dispose() {
     _thrustSubscription.cancel();
     appLog.fine('WorldController disposed for team ${actionStream.teamId}');

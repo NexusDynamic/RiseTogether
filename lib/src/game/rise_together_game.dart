@@ -64,11 +64,16 @@ class RiseTogetherGame extends Forge2DGame
     return worlds;
   }
 
-  RectangleComponent viewportRimGenerator(Vector2 viewportSize) =>
-      RectangleComponent(size: viewportSize, anchor: Anchor.topLeft)
-        ..paint.color = Color.fromARGB(255, 0, 200, 255)
-        ..paint.strokeWidth = 2.0
-        ..paint.style = PaintingStyle.stroke;
+  RectangleComponent viewportRimGenerator(
+    Vector2 viewportSize, {
+    bool overlay = false,
+  }) => RectangleComponent(size: viewportSize, anchor: Anchor.topLeft)
+    ..paint.color = overlay
+        ? Color.fromARGB(255, 0, 0, 0)
+        : Color.fromARGB(255, 0, 200, 255)
+    ..paint.strokeWidth = 2.0
+    ..paint.style = overlay ? PaintingStyle.fill : PaintingStyle.stroke
+    ..paint.blendMode = overlay ? BlendMode.color : BlendMode.srcOver;
 
   Vector2 alignedVector({
     required double longMultiplier,
@@ -93,7 +98,11 @@ class RiseTogetherGame extends Forge2DGame
                   shortMultiplier: 0.0,
                 )
                 //..size = Vector2(size.x / 2, size.y)
-                ..add(viewportRimGenerator(viewportSize)),
+                ..addAll([
+                  viewportRimGenerator(viewportSize),
+                  if (index == 1)
+                    viewportRimGenerator(viewportSize, overlay: true),
+                ]),
             )
             ..viewfinder.anchor = Anchor.center
             ..viewfinder.zoom = zoomLevel;

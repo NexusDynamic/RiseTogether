@@ -9,6 +9,9 @@ class Paddle extends BodyComponent<RiseTogetherGame>
   final Vector2 _start;
   final double _w;
   final double _h;
+
+  /// Position valuenotifier for paddle
+  final ValueNotifier<double> positionNotifier = ValueNotifier(0.0);
   @override
   final Forge2DWorld world;
 
@@ -33,10 +36,10 @@ class Paddle extends BodyComponent<RiseTogetherGame>
       gravityOverride: Vector2(0, 0),
     );
     paint = Paint()
-      ..color = const Color.fromARGB(255, 0, 0, 255)
+      ..color = const Color.fromARGB(255, 0, 187, 255)
       ..style = PaintingStyle.stroke
       ..strokeWidth = polygonRadius * 1.5;
-
+    positionNotifier.value = bodyDef.position.y;
     appLog.fine('Paddle position: ${bodyDef.position}');
     appLog.fine('World: ${world.hashCode}');
     return world.createBody(bodyDef)..createFixture(fixtureDef);
@@ -52,6 +55,7 @@ class Paddle extends BodyComponent<RiseTogetherGame>
   @override
   void update(double dt) {
     super.update(dt);
+
     applyPendingTransforms();
 
     // If no thrust, stop movement
@@ -59,6 +63,7 @@ class Paddle extends BodyComponent<RiseTogetherGame>
       body.clearForces();
       body.linearVelocity = Vector2.zero();
       body.angularVelocity = 0.0;
+      positionNotifier.value = body.position.y;
       return;
     }
 
@@ -88,5 +93,7 @@ class Paddle extends BodyComponent<RiseTogetherGame>
       body.angularVelocity = 0.0;
       body.setTransform(body.position, 1.3);
     }
+
+    positionNotifier.value = body.position.y;
   }
 }

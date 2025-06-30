@@ -25,10 +25,10 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
     appLog.info('Initializing NetworkActionBridge');
 
     // TODO: Initialize LSL outlet for sending actions
-    // _lslOutlet = ... your LSL outlet setup
+    // _lslOutlet =
 
     // TODO: Initialize LSL inlet for receiving actions
-    // _lslInlet = ... your LSL inlet setup
+    // _lslInlet =
 
     // TODO: Set up listener for incoming network actions
     // _setupNetworkReceiver();
