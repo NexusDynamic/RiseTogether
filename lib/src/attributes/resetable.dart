@@ -1,6 +1,6 @@
 import 'package:meta/meta.dart';
 
-class Resetable {
+mixin class Resetable {
   /// Resets the state of the object to its initial state.
   @mustBeOverridden
   void reset() {

@@ -1,11 +1,12 @@
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:rise_together/src/attributes/positionable.dart';
+import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
 class Paddle extends BodyComponent<RiseTogetherGame>
-    with AppLogging, PositionableBodyComponent {
+    with AppLogging, PositionableBodyComponent, Resetable {
   final Vector2 _start;
   final double _w;
   final double _h;
@@ -17,6 +18,9 @@ class Paddle extends BodyComponent<RiseTogetherGame>
 
   double thrustLeft = 0.0;
   double thrustRight = 0.0;
+  
+  // Public getter for starting position
+  Vector2 get startPosition => Vector2(_start.x + _w, _start.y);
 
   Paddle(this.world, this._start, _end)
     : _w = (_end.x - _start.x).abs() / 2, // Ensure minimum width
@@ -95,5 +99,17 @@ class Paddle extends BodyComponent<RiseTogetherGame>
     }
 
     positionNotifier.value = body.position.y;
+  }
+
+  @override
+  void reset() {
+    appLog.fine('Resetting paddle to start position: $startPosition');
+    thrustLeft = 0.0;
+    thrustRight = 0.0;
+    stopMovement();
+    setPosition(startPosition);
+    setAngle(0.0);
+    applyPendingTransforms();
+    positionNotifier.value = startPosition.y;
   }
 }

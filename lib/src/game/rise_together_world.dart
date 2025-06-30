@@ -20,6 +20,12 @@ class Level1 extends RiseTogetherLevel {
   const Level1();
 }
 
+class Level2 extends RiseTogetherLevel {
+  @override
+  final double verticalMultiplier = 15.0; // Taller level for more challenge
+  const Level2();
+}
+
 class RiseTogetherWorld extends Forge2DWorld
     with HasGameReference<RiseTogetherGame>, AppLogging {
   final RiseTogetherLevel level;
@@ -51,7 +57,10 @@ class RiseTogetherWorld extends Forge2DWorld
     ball = Ball(
       this,
       radius: 0.02 * level.horizontalWidth,
-      pos: Vector2(0.0, -1),
+      pos: Vector2(
+        0.0,
+        -0.01 - 0.02 * level.horizontalWidth - 0.02 * level.horizontalWidth,
+      ),
     );
     return ball;
   }

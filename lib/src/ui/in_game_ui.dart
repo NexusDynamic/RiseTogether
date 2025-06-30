@@ -4,10 +4,13 @@ import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/ui/level_progress.dart';
 import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
+import 'package:rise_together/src/game/tournament_manager.dart';
+import 'package:rise_together/src/game/distance_tracker.dart';
 import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/settings/app_settings.dart';
 
 class InGameUI extends StatelessWidget
-    with AppLogging
+    with AppLogging, AppSettings
     implements RiseTogetherOverlay {
   static final String overlayID = 'inGameUI';
   final RiseTogetherGame game;
@@ -32,18 +35,59 @@ class InGameUI extends StatelessWidget
       top: 10,
       width: screenWidth,
       child: Center(
-        child: ChangeNotifierProvider.value(
-          value: game.timeProvider,
-          builder: (ctx, _) => Text(
-            'Time Passed:\n${Provider.of<TimeProvider>(ctx).formattedTime}',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              backgroundColor: Color.fromARGB(150, 0, 0, 0),
-              color: Color.fromARGB(150, 255, 255, 255),
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+        child: Column(
+          children: [
+            // Tournament Progress
+            ChangeNotifierProvider.value(
+              value: game.tournamentManager,
+              builder: (ctx, _) {
+                final tournamentManager = Provider.of<TournamentManager>(ctx);
+                return Text(
+                  tournamentManager.levelProgress,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    backgroundColor: Color.fromARGB(150, 0, 0, 0),
+                    color: Color.fromARGB(200, 255, 255, 255),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                );
+              },
             ),
-          ),
+            SizedBox(height: 5),
+            // Time Remaining
+            ChangeNotifierProvider.value(
+              value: game.timeProvider,
+              builder: (ctx, _) => Text(
+                'Time: ${Provider.of<TimeProvider>(ctx).formattedTime}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  backgroundColor: Color.fromARGB(150, 0, 0, 0),
+                  color: Color.fromARGB(255, 255, 255, 255),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            SizedBox(height: 5),
+            // Distance Display
+            ChangeNotifierProvider.value(
+              value: game.distanceTracker,
+              builder: (ctx, _) {
+                final distanceTracker = Provider.of<DistanceTracker>(ctx);
+                return Text(
+                  'Team 1: ${distanceTracker.getFormattedDistance(0)} | Team 2: ${distanceTracker.getFormattedDistance(1)}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    backgroundColor: Color.fromARGB(150, 0, 0, 0),
+                    color: Color.fromARGB(200, 255, 255, 255),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -55,34 +99,45 @@ class InGameUI extends StatelessWidget
     double screenHeight,
   ) {
     return Positioned.fill(
-      child: Row(
+      child: Stack(
         children: [
-          // Team 0 (Left side) controls
-          SizedBox(width: 30),
-          Expanded(
-            child: _buildTeamSide(
-              teamId: 0,
-              teamName: 'Team 1',
-              alignment: MainAxisAlignment.start,
+          // Progress indicators in center
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildProgressIndicator(context, 0, screenHeight),
+                SizedBox(width: 20),
+                _buildProgressIndicator(context, 1, screenHeight),
+              ],
+            ),
+          ),
+          // Current player controls - Left side
+          Positioned(
+            left: 20,
+            bottom: 50,
+            child: _buildCurrentPlayerControls(
+              side: 'left',
               screenHeight: screenHeight,
             ),
           ),
-          SizedBox(width: 30),
-          // Progress indicators
-          _buildProgressIndicator(context, 0, screenHeight),
-          SizedBox(width: 20),
-          _buildProgressIndicator(context, 1, screenHeight),
-          SizedBox(width: 30),
-          // Team 1 (Right side) controls
-          Expanded(
-            child: _buildTeamSide(
-              teamId: 1,
-              teamName: 'Team 2',
-              alignment: MainAxisAlignment.end,
+          // Current player controls - Right side
+          Positioned(
+            right: 20,
+            bottom: 50,
+            child: _buildCurrentPlayerControls(
+              side: 'right',
               screenHeight: screenHeight,
             ),
           ),
-          SizedBox(width: 30),
+          // Debug controls at bottom center (if debug mode enabled)
+          if (_isDebugMode())
+            Positioned(
+              bottom: 20,
+              left: 0,
+              right: 0,
+              child: _buildDebugControls(screenHeight),
+            ),
         ],
       ),
     );
@@ -96,36 +151,87 @@ class InGameUI extends StatelessWidget
     return LevelProgressMeter(game: game, teamId: teamId);
   }
 
-  Widget _buildTeamSide({
-    required int teamId,
-    required String teamName,
-    required MainAxisAlignment alignment,
+  Widget _buildCurrentPlayerControls({
+    required String side,
     required double screenHeight,
   }) {
     return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      crossAxisAlignment: alignment == MainAxisAlignment.start
-          ? CrossAxisAlignment.start
-          : CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Text(
-            teamName,
+        Text(
+          side == 'left' ? 'Left' : 'Right',
+          style: const TextStyle(
+            color: Color.fromARGB(150, 255, 255, 255),
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            backgroundColor: Color.fromARGB(150, 0, 0, 0),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _buildActionButton(
+          teamId: 0, // Current player is always team 0 (left team from their perspective)
+          playerId: 'currentPlayer',
+          action: side == 'left' ? PaddleAction.left : PaddleAction.right,
+          icon: CupertinoIcons.arrow_up_to_line,
+          color: side == 'left' 
+            ? Color.fromARGB(180, 255, 85, 0)
+            : Color.fromARGB(180, 0, 85, 255),
+          size: 60,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDebugControls(double screenHeight) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Debug Controls',
             style: const TextStyle(
               color: Color.fromARGB(150, 255, 255, 255),
-              fontSize: 18,
+              fontSize: 14,
               fontWeight: FontWeight.bold,
               backgroundColor: Color.fromARGB(150, 0, 0, 0),
             ),
           ),
-        ),
-        _buildPlayerControls(teamId, 'player1'),
-        const SizedBox(height: 20),
-        _buildPlayerControls(teamId, 'player2'),
-        const SizedBox(height: 30),
-      ],
+          const SizedBox(height: 10),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Column(
+                children: [
+                  Text('Team 1', style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
+                  _buildPlayerControls(0, 'player1'),
+                  const SizedBox(height: 10),
+                  _buildPlayerControls(0, 'player2'),
+                ],
+              ),
+              const SizedBox(width: 40),
+              Column(
+                children: [
+                  Text('Team 2', style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
+                  _buildPlayerControls(1, 'player1'),
+                  const SizedBox(height: 10),
+                  _buildPlayerControls(1, 'player2'),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
     );
+  }
+
+  bool _isDebugMode() {
+    try {
+      return appSettings.getBool('game.debug_mode');
+    } catch (e) {
+      // Fallback to false if setting is not available
+      appLog.warning('Could not access debug_mode setting: $e');
+      return false;
+    }
   }
 
   Widget _buildPlayerControls(int teamId, String playerId) {
@@ -157,14 +263,15 @@ class InGameUI extends StatelessWidget
     required PaddleAction action,
     required IconData icon,
     required Color color,
+    double size = 40,
   }) {
     return Listener(
       onPointerDown: (_) => _sendAction(teamId, playerId, action),
       onPointerUp: (_) => _sendAction(teamId, playerId, PaddleAction.none),
       onPointerCancel: (_) => _sendAction(teamId, playerId, PaddleAction.none),
       child: Container(
-        width: 40,
-        height: 40,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
@@ -180,7 +287,7 @@ class InGameUI extends StatelessWidget
         child: Icon(
           icon,
           color: Color.fromARGB(255, 0, 0, 0),
-          size: 25,
+          size: size * 0.6,
           fontWeight: FontWeight.bold,
         ),
       ),

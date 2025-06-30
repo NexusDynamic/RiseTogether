@@ -1,6 +1,7 @@
 import 'package:flame/components.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:rise_together/src/attributes/positionable.dart';
+import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/components/wall.dart';
 import 'package:rise_together/src/game/rise_together_world.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -8,7 +9,7 @@ import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 
 class Ball extends BodyComponent<RiseTogetherGame>
-    with ContactCallbacks, AppLogging, AppSettings, PositionableBodyComponent {
+    with ContactCallbacks, AppLogging, AppSettings, PositionableBodyComponent, Resetable {
   bool isMoving = false;
   bool isRising = false;
   final double radius;
@@ -62,6 +63,16 @@ class Ball extends BodyComponent<RiseTogetherGame>
   @override
   void update(double dt) {
     super.update(dt);
+    applyPendingTransforms();
+  }
+
+  @override
+  void reset() {
+    appLog.fine('Resetting ball to start position: $startPosition');
+    isMoving = false;
+    isRising = false;
+    stopMovement();
+    setPosition(startPosition);
     applyPendingTransforms();
   }
 

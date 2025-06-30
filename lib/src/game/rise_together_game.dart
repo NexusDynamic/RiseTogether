@@ -10,36 +10,69 @@ import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/services/net/network_bridge.dart';
-import 'package:rise_together/src/ui/in_game_ui.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/game/world_controller.dart';
+import 'package:rise_together/src/game/tournament_manager.dart';
+import 'package:rise_together/src/game/distance_tracker.dart';
+import 'package:rise_together/src/attributes/resetable.dart';
 import 'rise_together_world.dart';
 
-/// A provider for tracking the time passed in the game.
-class TimeProvider extends ChangeNotifier {
-  double _timePassed = 0.0;
+/// A provider for tracking game time with countdown functionality.
+class TimeProvider extends ChangeNotifier with Resetable {
+  double _timeRemaining = 0.0;
+  double _duration = 120.0;
+  bool _isComplete = false;
 
-  double get timePassed => _timePassed;
+  double get timeRemaining => _timeRemaining;
+  double get duration => _duration;
+  bool get isComplete => _isComplete;
+
+  void initialize(double duration) {
+    _duration = duration;
+    _timeRemaining = duration;
+    _isComplete = false;
+    notifyListeners();
+  }
 
   void updateTime(double dt) {
-    _timePassed += dt;
+    if (_isComplete) return;
+
+    _timeRemaining -= dt;
+    if (_timeRemaining <= 0) {
+      _timeRemaining = 0;
+      _isComplete = true;
+    }
+    notifyListeners();
+  }
+
+  @override
+  void reset() {
+    _timeRemaining = _duration;
+    _isComplete = false;
     notifyListeners();
   }
 
   String get formattedTime {
-    final minutes = (_timePassed / 60).floor().toString().padLeft(2, '0');
-    final seconds = (_timePassed % 60).floor().toString().padLeft(2, '0');
-    final ms = ((_timePassed % 1) * 100).floor().toString().padLeft(2, '0');
-    return '$minutes:$seconds:$ms';
+    final totalSeconds = _timeRemaining.ceil();
+    final minutes = (totalSeconds / 60).floor().toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 }
 
 class RiseTogetherGame extends Forge2DGame
-    with KeyboardEvents, SingleGameInstance, AppLogging, AppSettings {
+    with
+        KeyboardEvents,
+        SingleGameInstance,
+        AppLogging,
+        AppSettings,
+        Resetable {
   final int nTeams = 2;
   late final RouterComponent router;
   final TimeProvider timeProvider = TimeProvider();
+  final TournamentManager tournamentManager = TournamentManager();
+  final DistanceTracker distanceTracker = DistanceTracker();
 
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
@@ -54,7 +87,9 @@ class RiseTogetherGame extends Forge2DGame
   final bool useLocalNetwork;
 
   RiseTogetherGame({this.level = const Level1(), this.useLocalNetwork = true})
-    : super(gravity: Vector2.zero(), zoom: 10);
+    : super(gravity: Vector2.zero(), zoom: 10) {
+    paused = true; // Start paused
+  }
 
   List<Forge2DWorld> _buildWorlds() {
     for (int i = 0; i < nTeams; i++) {
@@ -126,6 +161,11 @@ class RiseTogetherGame extends Forge2DGame
       appLog.fine('Adding paddle to camera: ${camera.hashCode}');
       camera.follow(paddle);
 
+      // Set starting height for distance tracking
+      final ballStartHeight = ball.body.position.y;
+      distanceTracker.setStartingHeight(i, ballStartHeight);
+      appLog.info('Team $i ball starting height: $ballStartHeight');
+
       // Connect paddle to world controller
       worldControllers[i].setPaddle(paddle);
     }
@@ -167,6 +207,22 @@ class RiseTogetherGame extends Forge2DGame
     appLog.fine('RiseTogetherGame onLoad called');
     await initSettings();
     appLog.fine('App settings initialized: $appSettings');
+
+    // Initialize timer with level duration from settings
+    final levelDuration = appSettings.getDouble('game.level_duration');
+    timeProvider.initialize(levelDuration);
+
+    // Initialize tournament settings
+    final tournamentRounds = appSettings.getInt('game.tournament_rounds');
+    final levelsPerRound = appSettings.getInt('game.levels_per_round');
+    tournamentManager.initialize(tournamentRounds, levelsPerRound);
+
+    // Initialize distance tracking
+    final distanceMultiplier = appSettings.getDouble(
+      'game.distance_multiplier',
+    );
+    distanceTracker.initialize(distanceMultiplier);
+
     camera.removeFromParent();
     world.removeFromParent();
     children.register<CameraComponent>();
@@ -181,8 +237,7 @@ class RiseTogetherGame extends Forge2DGame
     addAll(cameras);
     await _addPaddles();
 
-    appLog.fine('Adding overlay');
-    overlays.add(InGameUI.overlayID, priority: 1);
+    appLog.fine('Game loaded, ready for MainMenu');
   }
 
   @override
@@ -237,6 +292,93 @@ class RiseTogetherGame extends Forge2DGame
       return;
     }
     timeProvider.updateTime(dt);
+
+    // Update distance tracking for each team
+    for (int teamId = 0; teamId < nTeams; teamId++) {
+      if (teamId < worlds.length) {
+        final world = worlds[teamId];
+        if (world.ball.isMounted) {
+          final ballHeight = world.ball.position.y;
+          distanceTracker.updateBallPosition(teamId, ballHeight);
+
+          // Update tournament manager with current distances
+          final distance = distanceTracker.getTeamDistance(teamId);
+          tournamentManager.updateTeamDistance(teamId, distance);
+
+          // Debug logging (remove after testing)
+          if (distance > 0.1) {
+            appLog.info(
+              'Team $teamId - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
+            );
+          }
+        }
+      }
+    }
+
+    // Check if level is complete
+    if (timeProvider.isComplete && !isGameOver) {
+      _handleLevelComplete();
+    }
+  }
+
+  void _handleLevelComplete() {
+    appLog.info('Level completed - time is up!');
+
+    // Complete the level in tournament manager
+    tournamentManager.completeLevel();
+
+    // Remove in-game UI
+    overlays.remove('inGameUI');
+
+    // Check if surveys are enabled
+    final enableSurveys = appSettings.getBool('game.enable_surveys');
+
+    if (enableSurveys && !tournamentManager.isTournamentComplete) {
+      // Show survey first, then transition
+      overlays.add('Survey');
+    } else {
+      // Go directly to level transition
+      overlays.add('LevelTransition');
+    }
+
+    // Pause the engine
+    pauseEngine();
+  }
+
+  @override
+  void reset() {
+    appLog.info('Resetting game state');
+
+    // Reset timer
+    timeProvider.reset();
+
+    // Reset tournament and distance tracking
+    tournamentManager.reset();
+    distanceTracker.reset();
+
+    // Reset any world components that implement Resetable
+    for (final world in worlds) {
+      if (world is Resetable) {
+        (world as Resetable).reset();
+      }
+    }
+
+    // Reset any world controllers that implement Resetable
+    for (final controller in worldControllers) {
+      if (controller is Resetable) {
+        (controller as Resetable).reset();
+      }
+    }
+
+    // Pause the engine until user starts again
+    pauseEngine();
+
+    appLog.info('Game state reset complete');
+  }
+
+  /// Public method to reset and restart the game
+  void resetGame() {
+    reset();
   }
 
   @override
