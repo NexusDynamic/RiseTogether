@@ -13,5 +13,15 @@ abstract class NetworkBridge {
   factory NetworkBridge(
     ActionStreamManager actionManager, {
     bool useLocalNetwork = true,
-  }) => getNetworkBridge(actionManager, useLocalNetwork: useLocalNetwork);
+    String? deviceId,
+    String? deviceName,
+    dynamic performancePreset, // Use dynamic to avoid import issues
+    dynamic coordinationManager,
+  }) => getNetworkBridge(
+    actionManager,
+    useLocalNetwork: useLocalNetwork,
+    deviceId: deviceId,
+    deviceName: deviceName,
+    performancePreset: performancePreset,
+  );
 }

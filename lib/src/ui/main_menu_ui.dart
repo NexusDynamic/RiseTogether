@@ -5,14 +5,16 @@ import 'package:rise_together/src/ui/in_game_ui.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/services/coordination_manager.dart';
 
 class MainMenuUI extends StatelessWidget
     with AppLogging
     implements RiseTogetherOverlay {
   static final String overlayID = 'MainMenu';
   final RiseTogetherGame game;
+  final CoordinationManager coordinationManager;
 
-  MainMenuUI(this.game, {super.key});
+  MainMenuUI(this.game, this.coordinationManager, {super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +80,30 @@ class MainMenuUI extends StatelessWidget
             left: screenWidth * 0.25,
             right: screenWidth * 0.25,
             child: _buildResetButton(context),
+          ),
+          
+          // Coordination button (if coordinator) - reactive to role changes
+          ChangeNotifierProvider.value(
+            value: coordinationManager,
+            child: Consumer<CoordinationManager>(
+              builder: (context, manager, child) {
+                return manager.isCoordinator
+                  ? Positioned(
+                      top: screenHeight * 0.65,
+                      left: screenWidth * 0.25,
+                      right: screenWidth * 0.25,
+                      child: _buildCoordinationButton(context),
+                    )
+                  : SizedBox.shrink();
+              },
+            ),
+          ),
+          
+          // Network status in top left
+          Positioned(
+            top: 40,
+            left: 40,
+            child: _buildNetworkStatus(context),
           ),
           
           // Settings icon in top right corner
@@ -153,6 +179,87 @@ class MainMenuUI extends StatelessWidget
     );
   }
 
+  Widget _buildCoordinationButton(BuildContext context) {
+    return GestureDetector(
+      onTap: _openCoordination,
+      child: Container(
+        height: 50,
+        decoration: BoxDecoration(
+          color: Color.fromARGB(255, 150, 0, 255),
+          borderRadius: BorderRadius.circular(25),
+          boxShadow: [
+            BoxShadow(
+              color: Color.fromARGB(100, 0, 0, 0),
+              spreadRadius: 2,
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            'Coordination',
+            style: TextStyle(
+              color: Color.fromARGB(255, 255, 255, 255),
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetworkStatus(BuildContext context) {
+    return ChangeNotifierProvider.value(
+      value: coordinationManager,
+      child: Consumer<CoordinationManager>(
+        builder: (context, manager, child) {
+          return Container(
+            padding: EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Color.fromARGB(180, 0, 0, 0),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Network Status',
+                  style: TextStyle(
+                    color: Color.fromARGB(255, 255, 255, 255),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 5),
+                Text(
+                  manager.isInitialized 
+                    ? (manager.isCoordinator ? 'Coordinator' : 'Participant')
+                    : 'Connecting...',
+                  style: TextStyle(
+                    color: manager.isInitialized 
+                      ? Color.fromARGB(255, 0, 255, 0)
+                      : Color.fromARGB(255, 255, 255, 0),
+                    fontSize: 12,
+                  ),
+                ),
+                Text(
+                  'Nodes: ${manager.connectedNodes.length}',
+                  style: TextStyle(
+                    color: Color.fromARGB(200, 255, 255, 255),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildSettingsButton(BuildContext context) {
     return GestureDetector(
       onTap: _openSettings,
@@ -180,8 +287,17 @@ class MainMenuUI extends StatelessWidget
     );
   }
 
-  void _startGame() {
+  void _startGame() async {
     appLog.info('Starting game - removing MainMenu overlay and resuming engine');
+    
+    // Initialize network for gameplay only if using network mode
+    if (!game.useLocalNetwork) {
+      try {
+        await game.initializeNetworkForGameplay();
+      } catch (e) {
+        appLog.warning('Failed to initialize network for gameplay: $e');
+      }
+    }
     
     // Remove the main menu overlay
     game.overlays.remove(MainMenuUI.overlayID);
@@ -191,6 +307,13 @@ class MainMenuUI extends StatelessWidget
     
     // Resume the game engine
     game.resumeEngine();
+  }
+
+  void _openCoordination() {
+    appLog.info('Opening coordination overlay');
+    
+    // Add the coordination overlay
+    game.overlays.add('Coordination');
   }
 
   void _openSettings() {

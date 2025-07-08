@@ -62,7 +62,8 @@ class _SurveyUIState extends State<SurveyUI> {
           ),
           child: Padding(
             padding: EdgeInsets.all(20),
-            child: ListView(
+            child: ListView
+            (
               children: [
                 _buildHeader(),
                 SizedBox(height: 30),

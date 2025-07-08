@@ -10,7 +10,9 @@ import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/services/net/native/network_action_bridge.dart';
 import 'package:rise_together/src/services/net/network_bridge.dart';
+import 'package:rise_together/src/services/net/network_config.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/game/world_controller.dart';
@@ -18,6 +20,7 @@ import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/game/distance_tracker.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/attributes/team_provider.dart';
+import 'package:rise_together/src/services/coordination_manager.dart';
 import 'rise_together_world.dart';
 
 /// A provider for tracking game time with countdown functionality.
@@ -77,6 +80,9 @@ class RiseTogetherGame extends Forge2DGame
   final TournamentManager tournamentManager = TournamentManager();
   final DistanceTracker distanceTracker = DistanceTracker();
   final PlayerContext _playerContext = PlayerContext();
+  
+  // Coordination manager passed from main app
+  CoordinationManager? coordinationManager;
 
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
@@ -93,7 +99,7 @@ class RiseTogetherGame extends Forge2DGame
   final RiseTogetherLevel level;
   final bool useLocalNetwork;
 
-  RiseTogetherGame({this.level = const Level1(), this.useLocalNetwork = true})
+  RiseTogetherGame({this.level = const Level1(), this.useLocalNetwork = false})
     : super(gravity: Vector2.zero(), zoom: 10) {
     paused = true; // Start paused
   }
@@ -199,12 +205,14 @@ class RiseTogetherGame extends Forge2DGame
       worldController.initialize();
     }
 
-    // Initialize network bridge based on configuration
+    // Network bridge will be initialized later when game starts
+    // Don't initialize here to avoid conflicts with coordination manager
     networkBridge = NetworkBridge(
       actionManager,
       useLocalNetwork: useLocalNetwork,
+      performancePreset: PerformancePreset.balanced, // 500Hz - more stable
+      coordinationManager: coordinationManager,
     );
-    await networkBridge.initialize();
 
     appLog.fine('Action system initialized');
   }
@@ -264,6 +272,22 @@ class RiseTogetherGame extends Forge2DGame
     return KeyEventResult.handled;
   }
 
+  /// Initialize network bridge for gameplay (called when game starts)
+  Future<void> initializeNetworkForGameplay() async {
+    if (networkBridge is NetworkActionBridge) {
+      try {
+        await networkBridge.initialize();
+        appLog.fine('Network bridge initialized for gameplay');
+        
+        final netBridge = networkBridge as NetworkActionBridge;
+        appLog.info('Network status: ${netBridge.getNetworkStatus()}');
+      } catch (e) {
+        appLog.severe('Failed to initialize network for gameplay: $e');
+        // Fall back to local network if needed
+      }
+    }
+  }
+
   void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
     // Team A keyboard controls (left side)
     final teamA = Team.a;
@@ -282,7 +306,7 @@ class RiseTogetherGame extends Forge2DGame
     final teamB = Team.b;
     final playerB = PlayerId.fromTeamAndId(teamB, 'keyboard_player_b');
     PaddleAction actionB = PaddleAction.none;
-    
+
     if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
       actionB = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
