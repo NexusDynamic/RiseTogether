@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/ui/in_game_ui.dart';
 import 'package:rise_together/src/ui/main_menu_ui.dart';
 import 'package:rise_together/src/ui/settings_ui.dart';
@@ -29,16 +30,18 @@ class RiseTogetherApp extends StatefulWidget {
   State<RiseTogetherApp> createState() => _RiseTogetherAppState();
 }
 
-class _RiseTogetherAppState extends State<RiseTogetherApp> with AppLogging {
+class _RiseTogetherAppState extends State<RiseTogetherApp>
+    with AppLogging, AppSettings {
   late final CoordinationManager coordinationManager;
   late final RiseTogetherGame game;
 
   @override
   void initState() {
     super.initState();
+    initSettings();
     coordinationManager = CoordinationManager();
     game = RiseTogetherGame();
-    
+
     // Pass coordination manager to game
     game.coordinationManager = coordinationManager;
 

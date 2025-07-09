@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'package:liblsl_coordinator/liblsl_coordinator.dart'
-    hide PlayerAction; // hide for now
+import 'package:liblsl/lsl.dart';
+import 'package:liblsl_coordinator/liblsl_coordinator.dart' hide PlayerAction;
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -16,15 +16,23 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
   final String deviceName;
   final PerformancePreset performancePreset;
 
-  GamingCoordinationNode? _gamingNode;
-  StreamSubscription? _gameDataSubscription;
+  // Simple LSL outlet for game data
+  LSLOutlet? _gameDataOutlet;
+  // LSL inlets for receiving game data from all nodes
+  final List<LSLInlet> _gameDataInlets = [];
+  final List<StreamSubscription> _inletSubscriptions = [];
+  
   bool _isInitialized = false;
+  bool _isPausedMode = false;
 
   // Mapping from playerIdHash back to original playerId for own messages
   final Map<int, String> _playerIdMapping = {};
 
   // Optional coordination manager to reuse existing LSL coordination
   final CoordinationManager? _coordinationManager;
+  
+  // Timer for periodic inlet discovery
+  Timer? _inletDiscoveryTimer;
 
   NetworkActionBridge({
     required this.actionManager,
@@ -42,138 +50,178 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    appLog.info('Initializing NetworkActionBridge');
+    appLog.info('Initializing NetworkActionBridge with simple LSL transport');
 
     try {
-      if (_coordinationManager != null && _coordinationManager.isInitialized) {
-        appLog.info('Reusing existing coordination manager for game data');
-
-        // Use existing coordination manager's game streaming capabilities
-        await _initializeFromCoordinationManager();
-      } else {
-        appLog.info('Creating new gaming node (fallback mode)');
-
-        // Fall back to creating a new gaming node
-        await _initializeStandaloneGamingNode();
-      }
-
-      // Set up listener for incoming game actions
-      _setupNetworkReceiver();
-
-      // Wait briefly to establish connections
-      await Future.delayed(const Duration(milliseconds: 500));
-
+      await _initializeSimpleGameTransport();
       _isInitialized = true;
       appLog.info('NetworkActionBridge initialized successfully');
-
-      if (_gamingNode != null) {
-        appLog.info('Device role: ${_gamingNode!.role}');
-      }
     } catch (e) {
       appLog.severe('Failed to initialize NetworkActionBridge: $e');
       rethrow;
     }
   }
 
-  /// Initialize using existing coordination manager
-  Future<void> _initializeFromCoordinationManager() async {
-    final coordManager = _coordinationManager!;
+  /// Initialize in paused mode (low frequency, no busy wait)
+  Future<void> initializePausedMode() async {
+    if (_isInitialized) return;
 
-    // CoordinationManager has LSLCoordinationNode, we need to create a GamingCoordinationNode
-    // that reuses the same LSL infrastructure but adds game data streaming
-    if (coordManager.coordinationNode != null) {
-      final existingNode = coordManager.coordinationNode!;
-      appLog.info(
-        'Creating GamingCoordinationNode that reuses existing LSL coordination',
-      );
+    appLog.info('Initializing NetworkActionBridge in paused mode with simple LSL transport');
+    _isPausedMode = true;
 
-      // Create a gaming node that uses the same nodeId and nodeName but different stream names
-      _gamingNode = GamingCoordinationNode(
-        nodeId: existingNode.nodeId,
-        nodeName: existingNode.nodeName,
-        coordinationStreamName:
-            'risetogether_coordination', // Same as coordination manager
-        gameDataStreamName: 'risetogether_actions',
-        coordinationConfig:
-            RiseTogetherNetworkConfig.createCoordinationConfig(),
-        gameDataConfig: RiseTogetherNetworkConfig.createPerformancePreset(
-          performancePreset,
-        ),
-      );
-
-      // Initialize game data capabilities only (coordination already exists)
-      await _gamingNode!.initialize().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          appLog.warning('Gaming node initialization timed out');
-          throw TimeoutException(
-            'Gaming node initialization timed out',
-            const Duration(seconds: 10),
-          );
-        },
-      );
-
-      // Join the existing coordination network
-      await _gamingNode!.join().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          appLog.warning('Gaming node join timed out');
-          throw TimeoutException(
-            'Gaming node join timed out',
-            const Duration(seconds: 10),
-          );
-        },
-      );
-    } else {
-      appLog.warning(
-        'Coordination manager has no coordination node, creating standalone',
-      );
-      await _initializeStandaloneGamingNode();
+    try {
+      await _initializeSimpleGameTransport(pausedMode: true);
+      _isInitialized = true;
+      appLog.info('NetworkActionBridge initialized successfully in paused mode');
+    } catch (e) {
+      appLog.severe('Failed to initialize NetworkActionBridge in paused mode: $e');
+      rethrow;
     }
   }
 
-  /// Initialize standalone gaming node (fallback)
-  Future<void> _initializeStandaloneGamingNode() async {
-    _gamingNode = GamingCoordinationNode(
-      nodeId: deviceId,
-      nodeName: deviceName,
-      coordinationStreamName:
-          'risetogether_coordination_game', // Different stream to avoid conflict
-      gameDataStreamName: 'risetogether_actions',
-      coordinationConfig: RiseTogetherNetworkConfig.createCoordinationConfig(),
-      gameDataConfig: RiseTogetherNetworkConfig.createPerformancePreset(
-        performancePreset,
-      ),
-    );
+  /// Activate full mode (enable busy-wait polling)
+  Future<void> activateFullMode() async {
+    if (!_isInitialized) {
+      appLog.warning('NetworkActionBridge not initialized, cannot activate full mode');
+      return;
+    }
 
-    // Initialize the gaming node with timeout
-    await _gamingNode!.initialize().timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        appLog.warning('Gaming node initialization timed out');
-        throw TimeoutException(
-          'Gaming node initialization timed out',
-          const Duration(seconds: 10),
-        );
-      },
-    );
+    if (!_isPausedMode) {
+      appLog.info('Already in full mode');
+      return;
+    }
 
-    await _gamingNode!.join().timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        appLog.warning('Gaming node join timed out');
-        throw TimeoutException(
-          'Gaming node join timed out',
-          const Duration(seconds: 10),
-        );
-      },
-    );
+    appLog.info('Activating full mode (increasing polling frequency)');
+    _isPausedMode = false;
+
+    // Start more frequent inlet discovery for active gameplay
+    _startInletDiscovery(frequent: true);
+    
+    appLog.info('Full mode activated successfully');
   }
 
-  /// Send action over network using high-frequency LSL transport
+  /// Pause mode (disable busy-wait polling)
+  Future<void> pauseMode() async {
+    if (!_isInitialized) {
+      appLog.warning('NetworkActionBridge not initialized, cannot pause mode');
+      return;
+    }
+
+    if (_isPausedMode) {
+      appLog.info('Already in paused mode');
+      return;
+    }
+
+    appLog.info('Pausing mode (reducing polling frequency)');
+    _isPausedMode = true;
+
+    // Reduce inlet discovery frequency for paused mode
+    _startInletDiscovery(frequent: false);
+    
+    appLog.info('Paused mode activated successfully');
+  }
+
+  /// Initialize simple game transport with LSL outlet and inlets
+  Future<void> _initializeSimpleGameTransport({bool pausedMode = false}) async {
+    appLog.info('Creating simple LSL game transport${pausedMode ? ' (paused mode)' : ''}');
+
+    // Create LSL outlet for sending game data
+    final streamName = 'risetogether_actions_$deviceId';
+    final streamInfo = LSLStreamInfo(
+      name: streamName,
+      type: 'GameActions',
+      channelCount: 3, // [teamId, actionIndex, playerIdHash]
+      nominalSampleRate: pausedMode ? 60.0 : 500.0,
+      channelFormat: LSLChannelFormat.int32,
+      sourceId: 'game_$deviceId',
+    );
+
+    // Add metadata
+    streamInfo.setMetadata('device_id', deviceId);
+    streamInfo.setMetadata('device_name', deviceName);
+    streamInfo.setMetadata('game_version', '0.4.0');
+
+    _gameDataOutlet = LSLOutlet(streamInfo);
+    appLog.info('Created LSL outlet: $streamName');
+
+    // Start discovering inlets from other nodes
+    _startInletDiscovery(frequent: !pausedMode);
+    
+    // Give some time for initial discovery
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+
+  /// Start discovering LSL inlets from other nodes
+  void _startInletDiscovery({bool frequent = false}) {
+    _inletDiscoveryTimer?.cancel();
+    
+    final interval = frequent ? const Duration(seconds: 2) : const Duration(seconds: 5);
+    
+    _inletDiscoveryTimer = Timer.periodic(interval, (timer) {
+      _discoverGameInlets();
+    });
+    
+    // Do immediate discovery
+    _discoverGameInlets();
+  }
+
+  /// Discover and connect to LSL inlets from other nodes
+  void _discoverGameInlets() {
+    try {
+      // Find all available game action streams
+      final availableStreams = LSLStreamInfo.resolveStreams(
+        predicate: LSLStreamPredicate(type: 'GameActions'),
+        timeout: 1.0,
+      );
+
+      for (final streamInfo in availableStreams) {
+        final sourceId = streamInfo.sourceId;
+        
+        // Don't connect to our own stream
+        if (sourceId == 'game_$deviceId') continue;
+        
+        // Check if we already have an inlet for this stream
+        final existingInlets = _gameDataInlets.where(
+          (inlet) => inlet.info.sourceId == sourceId,
+        ).toList();
+        
+        final existingInlet = existingInlets.isEmpty ? null : existingInlets.first;
+        
+        if (existingInlet == null) {
+          appLog.info('Connecting to new game stream: ${streamInfo.name} (${streamInfo.sourceId})');
+          _connectToGameInlet(streamInfo);
+        }
+      }
+    } catch (e) {
+      appLog.warning('Error discovering game inlets: $e');
+    }
+  }
+
+  /// Connect to a specific game inlet
+  void _connectToGameInlet(LSLStreamInfo streamInfo) {
+    try {
+      final inlet = LSLInlet(streamInfo);
+      _gameDataInlets.add(inlet);
+      
+      // Listen to data from this inlet
+      final subscription = inlet.dataStream.listen(
+        (sample) => _processGameDataSample(sample, streamInfo.sourceId),
+        onError: (error) {
+          appLog.warning('Error in game data stream from ${streamInfo.sourceId}: $error');
+        },
+      );
+      
+      _inletSubscriptions.add(subscription);
+      appLog.info('Connected to game stream: ${streamInfo.name}');
+    } catch (e) {
+      appLog.severe('Failed to connect to game inlet ${streamInfo.name}: $e');
+    }
+  }
+
+  /// Send action over network using LSL outlet
   @override
   void sendAction(int teamId, String playerId, PaddleAction action) {
-    if (!_isInitialized || _gamingNode == null) {
+    if (!_isInitialized || _gameDataOutlet == null) {
       appLog.warning('NetworkActionBridge not initialized, action ignored');
       return;
     }
@@ -190,7 +238,7 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
       _playerIdMapping[playerIdHash] = playerId;
 
       // Send action as 3-channel int data: [teamId, actionIndex, playerIdHash]
-      _gamingNode!.sendGameData([teamId, action.index, playerIdHash]);
+      _gameDataOutlet!.pushSample([teamId, action.index, playerIdHash]);
     } catch (e) {
       appLog.severe('Failed to send action over network: $e');
     }
@@ -201,68 +249,46 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
     return _playerIdMapping[playerIdHash] ?? 'unknown_$playerIdHash';
   }
 
-  /// Setup receiver for network actions using high-frequency transport
-  void _setupNetworkReceiver() {
-    appLog.fine('Setting up high-frequency network receiver');
+  /// Process game data sample from LSL inlet
+  void _processGameDataSample(List<int> sample, String sourceId) {
+    try {
+      // Decode the 3-channel data: [teamId, actionIndex, playerIdHash]
+      if (sample.length >= 3) {
+        final teamId = sample[0];
+        final actionIndex = sample[1];
+        final playerIdHash = sample[2];
 
-    if (_gamingNode == null) return;
-
-    // Listen to game data samples from other devices
-    _gameDataSubscription = _gamingNode!.gameEventStream.listen(
-      (sampleEvent) {
-        try {
-          final sample = GameDataSample.fromMap(sampleEvent.data);
-          // In network mode, process all messages including our own
-          // (coordinator connects to its own LSL outlet)
-
-          // Decode the 3-channel data: [teamId, actionIndex, playerIdHash]
-          if (sample.channelData.length >= 3) {
-            final teamId = sample.channelData[0] as int;
-            final actionIndex = sample.channelData[1] as int;
-            final playerIdHash = sample.channelData[2] as int;
-
-            // Validate action index
-            if (actionIndex < 0 || actionIndex >= PaddleAction.values.length) {
-              appLog.warning('Invalid action index: $actionIndex');
-              return;
-            }
-
-            final action = PaddleAction.values[actionIndex];
-            // Create consistent playerId based on source and hash
-            final playerId = sample.sourceId == 'game_$deviceId'
-                ? _getOriginalPlayerId(playerIdHash)
-                : 'remote_${sample.sourceId}_$playerIdHash';
-
-            // Add action to appropriate team stream
-            final teamStream = actionManager.getTeamStream(teamId);
-            if (teamStream != null) {
-              teamStream.addAction(PlayerAction(playerId, action));
-
-              appLog.finest(
-                'Received action: team=$teamId, player=$playerId, action=$action, '
-                'timeCorrection=${sample.timeCorrection?.toStringAsFixed(3)}s',
-              );
-            } else {
-              appLog.warning('No team stream found for team $teamId');
-            }
-          } else {
-            appLog.warning(
-              'Incomplete game data sample: ${sample.channelData}',
-            );
-          }
-        } catch (e) {
-          appLog.severe('Error processing network action: $e');
+        // Validate action index
+        if (actionIndex < 0 || actionIndex >= PaddleAction.values.length) {
+          appLog.warning('Invalid action index: $actionIndex');
+          return;
         }
-      },
-      onError: (error) {
-        appLog.severe('Error in game data stream: $error');
-      },
-    );
 
-    // Also listen to coordination events for debugging
-    _gamingNode!.eventStream.listen((event) {
-      appLog.info('Coordination event: $event');
-    });
+        final action = PaddleAction.values[actionIndex];
+        // Create consistent playerId based on source and hash
+        final playerId = sourceId == 'game_$deviceId'
+            ? _getOriginalPlayerId(playerIdHash)
+            : 'remote_${sourceId}_$playerIdHash';
+
+        // Add action to appropriate team stream
+        final teamStream = actionManager.getTeamStream(teamId);
+        if (teamStream != null) {
+          teamStream.addAction(PlayerAction(playerId, action));
+
+          appLog.finest(
+            'Received action: team=$teamId, player=$playerId, action=$action from $sourceId',
+          );
+        } else {
+          appLog.warning('No team stream found for team $teamId');
+        }
+      } else {
+        appLog.warning(
+          'Incomplete game data sample: $sample',
+        );
+      }
+    } catch (e) {
+      appLog.severe('Error processing network action: $e');
+    }
   }
 
   /// Remove player from network tracking
@@ -274,23 +300,25 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
   }
 
   /// Get performance metrics for monitoring network performance
-  HighFrequencyMetrics? getPerformanceMetrics() {
-    return _gamingNode?.gamePerformanceMetrics;
+  Map<String, dynamic>? getPerformanceMetrics() {
+    return {
+      'outlet_active': _gameDataOutlet != null,
+      'inlet_count': _gameDataInlets.length,
+      'paused_mode': _isPausedMode,
+    };
   }
 
   /// Get current network status
   String getNetworkStatus() {
-    if (!_isInitialized || _gamingNode == null) {
+    if (!_isInitialized) {
       return 'Not initialized';
     }
 
-    final role = _gamingNode!.role;
-    final participants = _gamingNode!.gameParticipants.length;
-    final metrics = _gamingNode!.gamePerformanceMetrics;
+    final outletStatus = _gameDataOutlet != null ? 'Active' : 'None';
+    final inletCount = _gameDataInlets.length;
+    final mode = _isPausedMode ? 'Paused' : 'Active';
 
-    return 'Role: $role, Participants: $participants, '
-        'Frequency: ${metrics.actualFrequency.toStringAsFixed(1)}Hz, '
-        'Samples: ${metrics.samplesProcessed}';
+    return 'Outlet: $outletStatus, Inlets: $inletCount, Mode: $mode';
   }
 
   /// Dispose resources
@@ -298,11 +326,24 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
   void dispose() {
     appLog.info('Disposing NetworkActionBridge');
 
-    _gameDataSubscription?.cancel();
-    _gameDataSubscription = null;
+    _inletDiscoveryTimer?.cancel();
+    _inletDiscoveryTimer = null;
 
-    _gamingNode?.dispose();
-    _gamingNode = null;
+    // Cancel all inlet subscriptions
+    for (final subscription in _inletSubscriptions) {
+      subscription.cancel();
+    }
+    _inletSubscriptions.clear();
+
+    // Close all inlets
+    for (final inlet in _gameDataInlets) {
+      inlet.close();
+    }
+    _gameDataInlets.clear();
+
+    // Close outlet
+    _gameDataOutlet?.close();
+    _gameDataOutlet = null;
 
     _isInitialized = false;
   }

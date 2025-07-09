@@ -80,7 +80,7 @@ class RiseTogetherGame extends Forge2DGame
   final TournamentManager tournamentManager = TournamentManager();
   final DistanceTracker distanceTracker = DistanceTracker();
   final PlayerContext _playerContext = PlayerContext();
-  
+
   // Coordination manager passed from main app
   CoordinationManager? coordinationManager;
 
@@ -188,8 +188,16 @@ class RiseTogetherGame extends Forge2DGame
   Future<void> _initializeActionSystem() async {
     appLog.fine('Initializing action system');
 
-    // Create action stream manager
-    actionManager = ActionStreamManager();
+    // If using network and coordination manager exists, reuse its action manager
+    if (!useLocalNetwork && coordinationManager?.gameActionManager != null) {
+      // Reuse the action manager from coordination manager
+      actionManager = coordinationManager!.gameActionManager!;
+      appLog.info('Reusing action manager from coordination manager');
+    } else {
+      // Create new action stream manager for local mode
+      actionManager = ActionStreamManager();
+      appLog.info('Created new action manager for local mode');
+    }
 
     // Create team streams and world controllers
     for (int teamId = 0; teamId < nTeams; teamId++) {
@@ -205,14 +213,21 @@ class RiseTogetherGame extends Forge2DGame
       worldController.initialize();
     }
 
-    // Network bridge will be initialized later when game starts
-    // Don't initialize here to avoid conflicts with coordination manager
-    networkBridge = NetworkBridge(
-      actionManager,
-      useLocalNetwork: useLocalNetwork,
-      performancePreset: PerformancePreset.balanced, // 500Hz - more stable
-      coordinationManager: coordinationManager,
-    );
+    // Set up network bridge
+    if (!useLocalNetwork && coordinationManager?.gameTransport != null) {
+      // Use the existing game transport from coordination manager
+      networkBridge = coordinationManager!.gameTransport!;
+      appLog.info('Using existing game transport from coordination manager');
+    } else {
+      // Create new network bridge for local mode or fallback
+      networkBridge = NetworkBridge(
+        actionManager,
+        useLocalNetwork: useLocalNetwork,
+        performancePreset: PerformancePreset.balanced, // 500Hz - more stable
+        coordinationManager: coordinationManager,
+      );
+      appLog.info('Created new network bridge');
+    }
 
     appLog.fine('Action system initialized');
   }
@@ -221,6 +236,7 @@ class RiseTogetherGame extends Forge2DGame
   Future<void> onLoad() async {
     appLog.setMinLevel(Level.FINE);
     appLog.fine('RiseTogetherGame onLoad called');
+    // Ensure game settings store is loaded
     await initSettings();
     appLog.fine('App settings initialized: $appSettings');
 
@@ -274,11 +290,25 @@ class RiseTogetherGame extends Forge2DGame
 
   /// Initialize network bridge for gameplay (called when game starts)
   Future<void> initializeNetworkForGameplay() async {
-    if (networkBridge is NetworkActionBridge) {
+    if (!useLocalNetwork && coordinationManager != null) {
+      try {
+        // Activate the game transport that was established during coordination
+        await coordinationManager!.activateGameTransport();
+        appLog.fine('Game transport activated for gameplay');
+
+        if (coordinationManager!.gameTransport != null) {
+          final netBridge = coordinationManager!.gameTransport!;
+          appLog.info('Network status: ${netBridge.getNetworkStatus()}');
+        }
+      } catch (e) {
+        appLog.severe('Failed to activate game transport: $e');
+        // Fall back to local network if needed
+      }
+    } else if (networkBridge is NetworkActionBridge) {
       try {
         await networkBridge.initialize();
         appLog.fine('Network bridge initialized for gameplay');
-        
+
         final netBridge = networkBridge as NetworkActionBridge;
         appLog.info('Network status: ${netBridge.getNetworkStatus()}');
       } catch (e) {
@@ -359,6 +389,11 @@ class RiseTogetherGame extends Forge2DGame
     // Complete the level in tournament manager
     tournamentManager.completeLevel();
 
+    // Pause game transport if using network mode
+    if (!useLocalNetwork && coordinationManager != null) {
+      coordinationManager!.pauseGameTransport();
+    }
+
     // Remove in-game UI
     overlays.remove('inGameUI');
 
@@ -419,8 +454,17 @@ class RiseTogetherGame extends Forge2DGame
     for (final controller in worldControllers) {
       controller.dispose();
     }
-    networkBridge.dispose();
-    actionManager.dispose();
+    
+    // Only dispose network bridge if we created it (not reusing from coordination manager)
+    if (useLocalNetwork || coordinationManager?.gameTransport != networkBridge) {
+      networkBridge.dispose();
+    }
+    
+    // Only dispose action manager if we created it (not reusing from coordination manager)
+    if (useLocalNetwork || coordinationManager?.gameActionManager != actionManager) {
+      actionManager.dispose();
+    }
+    
     super.onRemove();
   }
 }
