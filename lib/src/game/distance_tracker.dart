@@ -6,7 +6,8 @@ import 'package:rise_together/src/services/log_service.dart';
 /// Tracks distance traveled by teams based on ball position
 class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
   double _distanceMultiplier = 100.0; // Default: 100 meters per game unit
-  final Map<int, double> _maxDistances = {}; // team ID -> max distance in meters
+  final Map<int, double> _maxDistances =
+      {}; // team ID -> max distance in meters
   final Map<int, double> _startingHeights = {}; // team ID -> starting height
 
   // For throttling UI updates
@@ -46,9 +47,9 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
 
     if (positiveDistance > (_maxDistances[teamId] ?? 0.0)) {
       _maxDistances[teamId] = positiveDistance;
-      appLog.fine(
-        'Team $teamId new max distance: ${positiveDistance.toStringAsFixed(1)}m',
-      );
+      // appLog.fine(
+      //   'Team $teamId new max distance: ${positiveDistance.toStringAsFixed(1)}m',
+      // );
       shouldNotify = true;
     }
 

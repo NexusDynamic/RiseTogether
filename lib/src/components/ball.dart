@@ -9,7 +9,12 @@ import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 
 class Ball extends BodyComponent<RiseTogetherGame>
-    with ContactCallbacks, AppLogging, AppSettings, PositionableBodyComponent, Resetable {
+    with
+        ContactCallbacks,
+        AppLogging,
+        AppSettings,
+        PositionableBodyComponent,
+        Resetable {
   bool isMoving = false;
   bool isRising = false;
   final double radius;

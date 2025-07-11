@@ -9,10 +9,10 @@ enum Team {
 
   /// Numeric ID for array indexing and database storage
   final int id;
-  
+
   /// Display name for UI
   final String displayName;
-  
+
   /// Short name for compact display
   final String shortName;
 
@@ -41,7 +41,7 @@ enum RelativeTeam {
   other('Other Team');
 
   const RelativeTeam(this.displayName);
-  
+
   final String displayName;
 
   /// Get the opposing relative team
@@ -65,11 +65,7 @@ class PlayerId {
   final Team team;
   final String? displayName;
 
-  const PlayerId({
-    required this.id,
-    required this.team,
-    this.displayName,
-  });
+  const PlayerId({required this.id, required this.team, this.displayName});
 
   /// Create a player ID with automatic display name
   const PlayerId.fromTeamAndId(this.team, this.id) : displayName = null;
@@ -89,10 +85,10 @@ class PlayerId {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is PlayerId && 
-       runtimeType == other.runtimeType &&
-       id == other.id &&
-       team == other.team);
+      (other is PlayerId &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          team == other.team);
 
   @override
   int get hashCode => Object.hash(id, team);
@@ -104,7 +100,7 @@ class PlayerId {
 /// Current player context for relative team operations
 class PlayerContext extends ChangeNotifier {
   PlayerId? _currentPlayer;
-  
+
   PlayerId? get currentPlayer => _currentPlayer;
   Team? get myTeam => _currentPlayer?.team;
   Team? get otherTeam => _currentPlayer?.team.opponent;
@@ -128,7 +124,7 @@ class PlayerContext extends ChangeNotifier {
   /// Convert relative team to absolute team
   Team? resolveTeam(RelativeTeam relativeTeam) {
     if (_currentPlayer == null) return null;
-    
+
     switch (relativeTeam) {
       case RelativeTeam.mine:
         return _currentPlayer!.team;
@@ -140,7 +136,7 @@ class PlayerContext extends ChangeNotifier {
   /// Convert absolute team to relative team
   RelativeTeam? getRelativeTeam(Team team) {
     if (_currentPlayer == null) return null;
-    
+
     if (team == _currentPlayer!.team) {
       return RelativeTeam.mine;
     } else {

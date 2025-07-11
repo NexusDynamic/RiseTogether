@@ -5,12 +5,11 @@ import 'package:rise_together/src/settings/app_settings.dart';
 
 /// Mixin that provides convenient access to team colors throughout the app
 mixin TeamColorProvider on AppSettings {
-  
   /// Get the current team color scheme from settings
   TeamColorScheme get teamColorScheme {
     final teamAColorValue = appSettings.getInt('colors.team_a_color');
     final teamBColorValue = appSettings.getInt('colors.team_b_color');
-    
+
     return TeamColorScheme.fromBaseColors(
       teamAColor: Color(teamAColorValue),
       teamBColor: Color(teamBColorValue),
@@ -30,13 +29,14 @@ mixin TeamColorProvider on AppSettings {
   Color getTeamAccentColor(Team team) => teamColorScheme.getAccentColor(team);
 
   /// Get background color for a team
-  Color getTeamBackgroundColor(Team team) => teamColorScheme.getBackgroundColor(team);
+  Color getTeamBackgroundColor(Team team) =>
+      teamColorScheme.getBackgroundColor(team);
 
   /// Get text color for a team
   Color getTeamTextColor(Team team) => teamColorScheme.getTextColor(team);
 
   /// Get color with specific opacity for team
-  Color getTeamColorWithOpacity(Team team, double opacity) => 
+  Color getTeamColorWithOpacity(Team team, double opacity) =>
       teamColorScheme.getColorWithOpacity(team, opacity);
 
   /// Update team color in settings

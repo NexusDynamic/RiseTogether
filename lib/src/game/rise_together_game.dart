@@ -282,7 +282,7 @@ class RiseTogetherGame extends Forge2DGame
     final teamB = Team.b;
     final playerB = PlayerId.fromTeamAndId(teamB, 'keyboard_player_b');
     PaddleAction actionB = PaddleAction.none;
-    
+
     if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
       actionB = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
@@ -304,7 +304,7 @@ class RiseTogetherGame extends Forge2DGame
     for (int teamId = 0; teamId < nTeams; teamId++) {
       if (teamId < worlds.length) {
         final world = worlds[teamId];
-        final team = Team.fromId(teamId);
+        // final team = Team.fromId(teamId);
         if (world.ball.isMounted) {
           final ballHeight = world.ball.position.y;
           distanceTracker.updateBallPosition(teamId, ballHeight);
@@ -314,11 +314,11 @@ class RiseTogetherGame extends Forge2DGame
           tournamentManager.updateTeamDistance(teamId, distance);
 
           // Debug logging (remove after testing)
-          if (distance > 0.1) {
-            appLog.info(
-              '${team.shortName} - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
-            );
-          }
+          // if (distance > 0.1) {
+          //   appLog.info(
+          //     '${team.shortName} - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
+          //   );
+          // }
         }
       }
     }
@@ -357,10 +357,13 @@ class RiseTogetherGame extends Forge2DGame
   void reset() {
     appLog.info('Resetting game state');
 
-    // Reset timer
+    // Reload settings and reinitialize components with new values
+    _reloadSettings();
+
+    // Reset timer (will now use updated duration)
     timeProvider.reset();
 
-    // Reset tournament and distance tracking
+    // Reset tournament and distance tracking (will now use updated values)
     tournamentManager.reset();
     distanceTracker.reset();
 
@@ -384,9 +387,36 @@ class RiseTogetherGame extends Forge2DGame
     appLog.info('Game state reset complete');
   }
 
+  /// Reload settings from storage and update components
+  void _reloadSettings() {
+    appLog.info('Reloading settings from storage');
+
+    // Reload timer settings
+    final levelDuration = appSettings.getDouble('game.level_duration');
+    timeProvider.initialize(levelDuration);
+
+    // Reload tournament settings
+    final tournamentRounds = appSettings.getInt('game.tournament_rounds');
+    final levelsPerRound = appSettings.getInt('game.levels_per_round');
+    tournamentManager.initialize(tournamentRounds, levelsPerRound);
+
+    // Reload distance tracking settings
+    final distanceMultiplier = appSettings.getDouble(
+      'game.distance_multiplier',
+    );
+    distanceTracker.initialize(distanceMultiplier);
+
+    appLog.info('Settings reloaded successfully');
+  }
+
   /// Public method to reset and restart the game
   void resetGame() {
     reset();
+  }
+
+  /// Public method to reload settings without full reset
+  void reloadSettings() {
+    _reloadSettings();
   }
 
   @override

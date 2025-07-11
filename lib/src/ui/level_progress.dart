@@ -14,7 +14,7 @@ class LevelProgressMeter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final height =
-        MediaQuery.of(context).size.height * 0.8; // 80% of screen height
+        MediaQuery.of(context).size.height * 0.75; // 80% of screen height
 
     return SizedBox(
       width: 10,
