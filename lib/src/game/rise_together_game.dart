@@ -91,9 +91,9 @@ class RiseTogetherGame extends Forge2DGame
   final isGameOver = false;
 
   final RiseTogetherLevel level;
-  final bool useLocalNetwork;
+  bool get useLocalNetwork => appSettings.getBool('game.local_only_mode');
 
-  RiseTogetherGame({this.level = const Level1(), this.useLocalNetwork = true})
+  RiseTogetherGame({this.level = const Level1()})
     : super(gravity: Vector2.zero(), zoom: 10) {
     paused = true; // Start paused
   }
@@ -358,6 +358,7 @@ class RiseTogetherGame extends Forge2DGame
     appLog.info('Resetting game state');
 
     // Reload settings and reinitialize components with new values
+    // Fire and forget - reset should be synchronous
     _reloadSettings();
 
     // Reset timer (will now use updated duration)
@@ -388,7 +389,7 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   /// Reload settings from storage and update components
-  void _reloadSettings() {
+  Future<void> _reloadSettings() async {
     appLog.info('Reloading settings from storage');
 
     // Reload timer settings
@@ -406,7 +407,27 @@ class RiseTogetherGame extends Forge2DGame
     );
     distanceTracker.initialize(distanceMultiplier);
 
+    // Reinitialize network bridge if local-only mode setting changed
+    await _reinitializeNetworkBridge();
+
     appLog.info('Settings reloaded successfully');
+  }
+
+  /// Reinitialize network bridge when local-only mode setting changes
+  Future<void> _reinitializeNetworkBridge() async {
+    appLog.info('Reinitializing network bridge with useLocalNetwork: $useLocalNetwork');
+    
+    // Dispose of the current network bridge
+    networkBridge.dispose();
+    
+    // Create a new network bridge with updated settings
+    networkBridge = NetworkBridge(
+      actionManager,
+      useLocalNetwork: useLocalNetwork,
+    );
+    await networkBridge.initialize();
+    
+    appLog.info('Network bridge reinitialized');
   }
 
   /// Public method to reset and restart the game
@@ -415,8 +436,8 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   /// Public method to reload settings without full reset
-  void reloadSettings() {
-    _reloadSettings();
+  Future<void> reloadSettings() async {
+    await _reloadSettings();
   }
 
   @override

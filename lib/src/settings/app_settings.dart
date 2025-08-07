@@ -39,6 +39,9 @@ mixin class AppSettings {
 
           /// Enable simulated player mode for demo/presentation
           BoolSetting(key: 'simulated_players', defaultValue: false),
+
+          /// Enable local-only mode (no network communication)
+          BoolSetting(key: 'local_only_mode', defaultValue: false),
         ],
       ),
       // Physics settings group
