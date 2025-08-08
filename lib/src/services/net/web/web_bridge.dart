@@ -6,4 +6,7 @@ import '../network_bridge.dart';
 NetworkBridge getNetworkBridge(
   ActionStreamManager actionManager, {
   bool useLocalNetwork = true,
+  String? deviceId,
+  String? deviceName,
+  dynamic performancePreset,
 }) => LocalActionBridge(actionManager: actionManager);
