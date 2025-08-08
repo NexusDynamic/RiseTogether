@@ -22,23 +22,29 @@ class TeamColorPalette {
   /// Create a palette from a base color
   factory TeamColorPalette.fromBaseColor(Color baseColor) {
     final hsv = HSVColor.fromColor(baseColor);
-    
+
     return TeamColorPalette(
       baseColor: baseColor,
-      lightColor: hsv.withSaturation((hsv.saturation * 0.6).clamp(0.0, 1.0))
-                     .withValue((hsv.value * 1.15).clamp(0.0, 1.0))
-                     .toColor(),
-      darkColor: hsv.withValue((hsv.value * 0.75).clamp(0.0, 1.0))
-                    .withSaturation((hsv.saturation * 1.1).clamp(0.0, 1.0))
-                    .toColor(),
-      accentColor: hsv.withHue((hsv.hue + 25) % 360)
-                      .withSaturation((hsv.saturation * 0.9).clamp(0.0, 1.0))
-                      .toColor(),
-      backgroundColor: hsv.withSaturation((hsv.saturation * 0.25).clamp(0.0, 1.0))
-                          .withValue((hsv.value * 0.95).clamp(0.0, 1.0))
-                          .toColor()
-                          .withValues(alpha: 0.15),
-      textColor: hsv.value > 0.6 ? CupertinoColors.black : CupertinoColors.white,
+      lightColor: hsv
+          .withSaturation((hsv.saturation * 0.6).clamp(0.0, 1.0))
+          .withValue((hsv.value * 1.15).clamp(0.0, 1.0))
+          .toColor(),
+      darkColor: hsv
+          .withValue((hsv.value * 0.75).clamp(0.0, 1.0))
+          .withSaturation((hsv.saturation * 1.1).clamp(0.0, 1.0))
+          .toColor(),
+      accentColor: hsv
+          .withHue((hsv.hue + 25) % 360)
+          .withSaturation((hsv.saturation * 0.9).clamp(0.0, 1.0))
+          .toColor(),
+      backgroundColor: hsv
+          .withSaturation((hsv.saturation * 0.25).clamp(0.0, 1.0))
+          .withValue((hsv.value * 0.95).clamp(0.0, 1.0))
+          .toColor()
+          .withValues(alpha: 0.15),
+      textColor: hsv.value > 0.6
+          ? CupertinoColors.black
+          : CupertinoColors.white,
     );
   }
 
@@ -121,16 +127,26 @@ class TeamColorScheme {
   /// Convert to serializable format (color values as integers)
   Map<String, int> toMap() {
     return {
-      'team_a_color': _teamPalettes[Team.a]?.baseColor.toARGB32() ?? TeamColorPalette.defaultTeamA().baseColor.toARGB32(),
-      'team_b_color': _teamPalettes[Team.b]?.baseColor.toARGB32() ?? TeamColorPalette.defaultTeamB().baseColor.toARGB32(),
+      'team_a_color':
+          _teamPalettes[Team.a]?.baseColor.toARGB32() ??
+          TeamColorPalette.defaultTeamA().baseColor.toARGB32(),
+      'team_b_color':
+          _teamPalettes[Team.b]?.baseColor.toARGB32() ??
+          TeamColorPalette.defaultTeamB().baseColor.toARGB32(),
     };
   }
 
   /// Create from serializable format
   factory TeamColorScheme.fromMap(Map<String, dynamic> map) {
     return TeamColorScheme.fromBaseColors(
-      teamAColor: Color(map['team_a_color'] ?? TeamColorPalette.defaultTeamA().baseColor.toARGB32()),
-      teamBColor: Color(map['team_b_color'] ?? TeamColorPalette.defaultTeamB().baseColor.toARGB32()),
+      teamAColor: Color(
+        map['team_a_color'] ??
+            TeamColorPalette.defaultTeamA().baseColor.toARGB32(),
+      ),
+      teamBColor: Color(
+        map['team_b_color'] ??
+            TeamColorPalette.defaultTeamB().baseColor.toARGB32(),
+      ),
     );
   }
 }

@@ -18,7 +18,7 @@ class Paddle extends BodyComponent<RiseTogetherGame>
 
   double thrustLeft = 0.0;
   double thrustRight = 0.0;
-  
+
   // Public getter for starting position
   Vector2 get startPosition => Vector2(_start.x + _w, _start.y);
 

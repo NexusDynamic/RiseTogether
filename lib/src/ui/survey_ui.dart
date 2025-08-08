@@ -3,8 +3,8 @@ import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
-/// Placeholder survey UI for future expansion
-/// This can be extended to include actual survey questions, data collection, etc.
+/// IOS (Inclusion of Other in Self) Scale Survey UI
+/// Single question about alignment between self and teammates
 class SurveyUI extends StatefulWidget
     with AppLogging
     implements RiseTogetherOverlay {
@@ -20,9 +20,16 @@ class SurveyUI extends StatefulWidget
 class _SurveyUIState extends State<SurveyUI> {
   int _currentQuestion = 0;
   final List<String> _questions = [
-    'How did you feel about this level?',
-    'How well did you cooperate with your team?',
-    'How challenging was the level?',
+    'How aligned do you feel your own and your teammates were during the last round?',
+  ];
+
+  final List<String> _alignmentOptions = [
+    'Not at all aligned',
+    'Hardly aligned',
+    'A little aligned',
+    'Somewhat aligned',
+    'Very aligned',
+    'Extremely aligned',
   ];
 
   final List<String> _answers = [];
@@ -46,8 +53,8 @@ class _SurveyUIState extends State<SurveyUI> {
       color: Color.fromARGB(220, 0, 0, 0),
       child: Center(
         child: Container(
-          width: screenWidth * 0.8,
-          height: screenHeight * 0.6,
+          width: screenWidth * 0.9,
+          height: screenHeight * 0.8,
           decoration: BoxDecoration(
             color: Color.fromARGB(255, 40, 40, 40),
             borderRadius: BorderRadius.circular(20),
@@ -62,15 +69,14 @@ class _SurveyUIState extends State<SurveyUI> {
           ),
           child: Padding(
             padding: EdgeInsets.all(20),
-            child: ListView
-            (
+            child: Column(
               children: [
                 _buildHeader(),
                 SizedBox(height: 30),
                 _buildQuestion(),
                 SizedBox(height: 30),
-                _buildAnswerOptions(),
-                Spacer(),
+                Expanded(child: _buildAnswerOptions()),
+                SizedBox(height: 20),
                 _buildNavigationButtons(),
               ],
             ),
@@ -84,7 +90,7 @@ class _SurveyUIState extends State<SurveyUI> {
     return Column(
       children: [
         Text(
-          'Quick Survey',
+          'Team Alignment Survey',
           style: TextStyle(
             color: Color.fromARGB(255, 255, 255, 255),
             fontSize: 28,
@@ -93,7 +99,7 @@ class _SurveyUIState extends State<SurveyUI> {
         ),
         SizedBox(height: 10),
         Text(
-          'Question ${_currentQuestion + 1} of ${_questions.length}',
+          'IOS Scale (Inclusion of Other in Self)',
           style: TextStyle(
             color: Color.fromARGB(200, 255, 255, 255),
             fontSize: 16,
@@ -123,45 +129,138 @@ class _SurveyUIState extends State<SurveyUI> {
   }
 
   Widget _buildAnswerOptions() {
-    final options = ['Very Good', 'Good', 'Neutral', 'Poor', 'Very Poor'];
+    return Center(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 15,
+        runSpacing: 15,
+        children: _alignmentOptions.asMap().entries.map((entry) {
+          final index = entry.key;
+          final option = entry.value;
+          final isSelected = _answers[_currentQuestion] == option;
 
-    return Column(
-      children: options.map((option) {
-        final isSelected = _answers[_currentQuestion] == option;
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              _answers[_currentQuestion] = option;
-            });
-          },
-          child: Container(
-            margin: EdgeInsets.symmetric(vertical: 5),
-            padding: EdgeInsets.all(15),
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? Color.fromARGB(150, 0, 150, 255)
-                  : Color.fromARGB(100, 100, 100, 100),
-              borderRadius: BorderRadius.circular(10),
-              border: isSelected
-                  ? Border.all(
-                      color: Color.fromARGB(255, 0, 150, 255),
-                      width: 2,
-                    )
-                  : null,
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _answers[_currentQuestion] = option;
+              });
+            },
+            child: Container(
+              width: 140,
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? Color.fromARGB(150, 0, 150, 255)
+                    : Color.fromARGB(100, 100, 100, 100),
+                borderRadius: BorderRadius.circular(15),
+                border: isSelected
+                    ? Border.all(
+                        color: Color.fromARGB(255, 0, 150, 255),
+                        width: 2,
+                      )
+                    : null,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Circle visualization
+                  _buildCircleVisualization(index),
+                  SizedBox(height: 8),
+                  // Text label below circles
+                  Text(
+                    option,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color.fromARGB(255, 255, 255, 255),
+                      fontSize: 14,
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Text(
-              option,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color.fromARGB(255, 255, 255, 255),
-                fontSize: 16,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildCircleVisualization(int index) {
+    // Calculate overlap based on index (0-5)
+    // 0: no overlap, 5: maximum overlap
+    double overlap = (index / 5.0) * 35; // 0 to 35 pixels overlap
+
+    // Calculate the distance each circle should move from center
+    double leftOffset = -(40 - overlap) / 2; // Left circle moves left
+    double rightOffset = (40 - overlap) / 2; // Right circle moves right
+
+    return SizedBox(
+      height: 40,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Left circle (Self)
+          Align(
+            alignment: Alignment.center,
+            child: Transform.translate(
+              offset: Offset(leftOffset, 0),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Color.fromARGB(100, 100, 150, 255),
+                  border: Border.all(
+                    color: Color.fromARGB(255, 100, 150, 255),
+                    width: 2,
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    'Self',
+                    style: TextStyle(
+                      color: Color.fromARGB(255, 255, 255, 255),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-        );
-      }).toList(),
+          // Right circle (Teammates)
+          Align(
+            alignment: Alignment.center,
+            child: Transform.translate(
+              offset: Offset(rightOffset, 0),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Color.fromARGB(100, 255, 150, 100),
+                  border: Border.all(
+                    color: Color.fromARGB(255, 255, 150, 100),
+                    width: 2,
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    'Team',
+                    style: TextStyle(
+                      color: Color.fromARGB(255, 255, 255, 255),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

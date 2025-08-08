@@ -97,9 +97,10 @@ class RiseTogetherGame extends Forge2DGame
   final isGameOver = false;
 
   final RiseTogetherLevel level;
-  final bool useLocalNetwork;
+  bool get useLocalNetwork => appSettings.getBool('game.local_only_mode');
 
-  RiseTogetherGame({this.level = const Level1(), this.useLocalNetwork = false})
+
+  RiseTogetherGame({this.level = const Level1()})
     : super(gravity: Vector2.zero(), zoom: 10) {
     paused = true; // Start paused
   }
@@ -358,7 +359,7 @@ class RiseTogetherGame extends Forge2DGame
     for (int teamId = 0; teamId < nTeams; teamId++) {
       if (teamId < worlds.length) {
         final world = worlds[teamId];
-        final team = Team.fromId(teamId);
+        // final team = Team.fromId(teamId);
         if (world.ball.isMounted) {
           final ballHeight = world.ball.position.y;
           distanceTracker.updateBallPosition(teamId, ballHeight);
@@ -368,11 +369,11 @@ class RiseTogetherGame extends Forge2DGame
           tournamentManager.updateTeamDistance(teamId, distance);
 
           // Debug logging (remove after testing)
-          if (distance > 0.1) {
-            appLog.info(
-              '${team.shortName} - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
-            );
-          }
+          // if (distance > 0.1) {
+          //   appLog.info(
+          //     '${team.shortName} - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
+          //   );
+          // }
         }
       }
     }
@@ -416,10 +417,14 @@ class RiseTogetherGame extends Forge2DGame
   void reset() {
     appLog.info('Resetting game state');
 
-    // Reset timer
+    // Reload settings and reinitialize components with new values
+    // Fire and forget - reset should be synchronous
+    _reloadSettings();
+
+    // Reset timer (will now use updated duration)
     timeProvider.reset();
 
-    // Reset tournament and distance tracking
+    // Reset tournament and distance tracking (will now use updated values)
     tournamentManager.reset();
     distanceTracker.reset();
 
@@ -443,9 +448,56 @@ class RiseTogetherGame extends Forge2DGame
     appLog.info('Game state reset complete');
   }
 
+  /// Reload settings from storage and update components
+  Future<void> _reloadSettings() async {
+    appLog.info('Reloading settings from storage');
+
+    // Reload timer settings
+    final levelDuration = appSettings.getDouble('game.level_duration');
+    timeProvider.initialize(levelDuration);
+
+    // Reload tournament settings
+    final tournamentRounds = appSettings.getInt('game.tournament_rounds');
+    final levelsPerRound = appSettings.getInt('game.levels_per_round');
+    tournamentManager.initialize(tournamentRounds, levelsPerRound);
+
+    // Reload distance tracking settings
+    final distanceMultiplier = appSettings.getDouble(
+      'game.distance_multiplier',
+    );
+    distanceTracker.initialize(distanceMultiplier);
+
+    // Reinitialize network bridge if local-only mode setting changed
+    await _reinitializeNetworkBridge();
+
+    appLog.info('Settings reloaded successfully');
+  }
+
+  /// Reinitialize network bridge when local-only mode setting changes
+  Future<void> _reinitializeNetworkBridge() async {
+    appLog.info('Reinitializing network bridge with useLocalNetwork: $useLocalNetwork');
+    
+    // Dispose of the current network bridge
+    networkBridge.dispose();
+    
+    // Create a new network bridge with updated settings
+    networkBridge = NetworkBridge(
+      actionManager,
+      useLocalNetwork: useLocalNetwork,
+    );
+    await networkBridge.initialize();
+    
+    appLog.info('Network bridge reinitialized');
+  }
+
   /// Public method to reset and restart the game
   void resetGame() {
     reset();
+  }
+
+  /// Public method to reload settings without full reset
+  Future<void> reloadSettings() async {
+    await _reloadSettings();
   }
 
   @override

@@ -49,7 +49,9 @@ class MainMenuUI extends StatelessWidget
                 ChangeNotifierProvider.value(
                   value: game.tournamentManager,
                   builder: (ctx, _) {
-                    final tournamentManager = Provider.of<TournamentManager>(ctx);
+                    final tournamentManager = Provider.of<TournamentManager>(
+                      ctx,
+                    );
                     return Text(
                       'Tournament Score - Team 1: ${tournamentManager.team1RoundWins} | Team 2: ${tournamentManager.team2RoundWins}',
                       textAlign: TextAlign.center,
@@ -65,7 +67,7 @@ class MainMenuUI extends StatelessWidget
               ],
             ),
           ),
-          
+
           // Start game button
           Positioned(
             top: screenHeight * 0.45,
@@ -73,7 +75,7 @@ class MainMenuUI extends StatelessWidget
             right: screenWidth * 0.25,
             child: _buildStartButton(context),
           ),
-          
+
           // Reset game button
           Positioned(
             top: screenHeight * 0.55,
@@ -107,11 +109,7 @@ class MainMenuUI extends StatelessWidget
           ),
           
           // Settings icon in top right corner
-          Positioned(
-            top: 40,
-            right: 40,
-            child: _buildSettingsButton(context),
-          ),
+          Positioned(top: 40, right: 40, child: _buildSettingsButton(context)),
         ],
       ),
     );
@@ -287,6 +285,7 @@ class MainMenuUI extends StatelessWidget
     );
   }
 
+
   void _startGame() async {
     appLog.info('Starting game - removing MainMenu overlay and resuming engine');
     
@@ -301,10 +300,10 @@ class MainMenuUI extends StatelessWidget
     
     // Remove the main menu overlay
     game.overlays.remove(MainMenuUI.overlayID);
-    
+
     // Add the in-game UI overlay
     game.overlays.add(InGameUI.overlayID);
-    
+
     // Resume the game engine
     game.resumeEngine();
   }
@@ -318,14 +317,14 @@ class MainMenuUI extends StatelessWidget
 
   void _openSettings() {
     appLog.info('Opening settings overlay');
-    
+
     // Add the settings overlay
     game.overlays.add('Settings');
   }
 
   void _resetGame() {
     appLog.info('Resetting game from main menu');
-    
+
     // Reset the game state
     game.resetGame();
   }

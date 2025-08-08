@@ -23,6 +23,8 @@ class SettingsUI extends StatefulWidget
 class _SettingsUIState extends State<SettingsUI>
     with AppSettings, TeamColorProvider {
   bool _debugMode = true;
+  bool _simulatedPlayers = false;
+  bool _localOnlyMode = false;
   double _gameScale = 0.0001;
   double _ballRadius = 1.0;
   double _levelDuration = 120.0;
@@ -44,6 +46,8 @@ class _SettingsUIState extends State<SettingsUI>
   void _loadSettings() {
     try {
       _debugMode = appSettings.getBool('game.debug_mode');
+      _simulatedPlayers = appSettings.getBool('game.simulated_players');
+      _localOnlyMode = appSettings.getBool('game.local_only_mode');
       _gameScale = appSettings.getDouble('game.game_scale');
       _ballRadius = appSettings.getDouble('game.ball_radius');
       _levelDuration = appSettings.getDouble('game.level_duration');
@@ -154,13 +158,43 @@ class _SettingsUIState extends State<SettingsUI>
           // Debug Mode Toggle
           _buildBooleanSetting(
             'Debug Mode',
-            'Show simulated player controls',
+            'Enable debugging features',
             _debugMode,
             (value) {
               setState(() {
                 _debugMode = value;
               });
               _saveSetting('game.debug_mode', value);
+            },
+          ),
+
+          SizedBox(height: 20),
+
+          // Simulated Players Toggle
+          _buildBooleanSetting(
+            'Simulated Players',
+            'Show 4-player controls for demo/presentation',
+            _simulatedPlayers,
+            (value) {
+              setState(() {
+                _simulatedPlayers = value;
+              });
+              _saveSetting('game.simulated_players', value);
+            },
+          ),
+
+          SizedBox(height: 20),
+
+          // Local-Only Mode Toggle
+          _buildBooleanSetting(
+            'Enable Local-Only Mode',
+            'Run in demo mode without network communication',
+            _localOnlyMode,
+            (value) {
+              setState(() {
+                _localOnlyMode = value;
+              });
+              _saveSetting('game.local_only_mode', value);
             },
           ),
 
@@ -533,7 +567,7 @@ class _SettingsUIState extends State<SettingsUI>
                           color: color,
                           boxShadow: [
                             BoxShadow(
-                              color: color.withOpacity(0.8),
+                              color: color.withValues(alpha: 0.8),
                               offset: const Offset(1, 2),
                               blurRadius: 5,
                             ),
@@ -591,6 +625,13 @@ class _SettingsUIState extends State<SettingsUI>
         appSettings.setDouble(key, value);
       }
       widget.appLog.info('Saved setting $key: $value');
+
+      // Reload settings in game if it's a game-related setting
+      if (key.startsWith('game.')) {
+        // Fire and forget - don't block UI for network reinitialization
+        widget.game.reloadSettings();
+        widget.appLog.info('Reloaded game settings after changing $key');
+      }
     } catch (e) {
       widget.appLog.warning('Could not save setting $key: $e');
     }

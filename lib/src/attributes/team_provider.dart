@@ -1,7 +1,7 @@
 import 'package:rise_together/src/models/team.dart';
 
 /// Mixin that provides convenient team-based access to collections
-/// 
+///
 /// This mixin allows classes to provide both absolute and relative team access
 /// to their collections (like worlds, controllers, distances, etc.)
 mixin TeamProvider {
@@ -15,7 +15,7 @@ mixin TeamProvider {
   int? relativeTeamToIndex(RelativeTeam relativeTeam) {
     final context = playerContext;
     if (context == null) return null;
-    
+
     final absoluteTeam = context.resolveTeam(relativeTeam);
     return absoluteTeam?.id;
   }
@@ -35,10 +35,10 @@ extension TeamList<T> on List<T> {
   /// Get item by relative team (requires player context)
   T? forRelativeTeam(RelativeTeam relativeTeam, PlayerContext? context) {
     if (context == null) return null;
-    
+
     final absoluteTeam = context.resolveTeam(relativeTeam);
     if (absoluteTeam == null) return null;
-    
+
     return forTeam(absoluteTeam);
   }
 
@@ -52,12 +52,16 @@ extension TeamList<T> on List<T> {
   }
 
   /// Set item by relative team (requires player context)
-  bool setForRelativeTeam(RelativeTeam relativeTeam, T value, PlayerContext? context) {
+  bool setForRelativeTeam(
+    RelativeTeam relativeTeam,
+    T value,
+    PlayerContext? context,
+  ) {
     if (context == null) return false;
-    
+
     final absoluteTeam = context.resolveTeam(relativeTeam);
     if (absoluteTeam == null) return false;
-    
+
     setForTeam(absoluteTeam, value);
     return true;
   }
@@ -71,10 +75,10 @@ extension TeamMap<T> on Map<int, T> {
   /// Get item by relative team (requires player context)
   T? forRelativeTeam(RelativeTeam relativeTeam, PlayerContext? context) {
     if (context == null) return null;
-    
+
     final absoluteTeam = context.resolveTeam(relativeTeam);
     if (absoluteTeam == null) return null;
-    
+
     return forTeam(absoluteTeam);
   }
 
@@ -84,20 +88,24 @@ extension TeamMap<T> on Map<int, T> {
   }
 
   /// Set item by relative team (requires player context)
-  bool setForRelativeTeam(RelativeTeam relativeTeam, T value, PlayerContext? context) {
+  bool setForRelativeTeam(
+    RelativeTeam relativeTeam,
+    T value,
+    PlayerContext? context,
+  ) {
     if (context == null) return false;
-    
+
     final absoluteTeam = context.resolveTeam(relativeTeam);
     if (absoluteTeam == null) return false;
-    
+
     setForTeam(absoluteTeam, value);
     return true;
   }
 
   /// Get all teams that have values
-  Iterable<Team> get teams => 
-      keys.where((id) => Team.values.any((team) => team.id == id))
-          .map((id) => Team.fromId(id));
+  Iterable<Team> get teams => keys
+      .where((id) => Team.values.any((team) => team.id == id))
+      .map((id) => Team.fromId(id));
 
   /// Convert to team-keyed map
   Map<Team, T> toTeamMap() {
@@ -122,14 +130,14 @@ class TeamCollection<T> {
   TeamCollection(this._items, [this._context]);
 
   /// Create a team collection with initial values
-  TeamCollection.filled(T value, [PlayerContext? context]) 
-      : _items = List.filled(Team.values.length, value),
-        _context = context;
+  TeamCollection.filled(T value, [PlayerContext? context])
+    : _items = List.filled(Team.values.length, value),
+      _context = context;
 
   /// Create an empty team collection (requires a default value)
-  TeamCollection.generate(T Function() generator, [PlayerContext? context]) 
-      : _items = List.generate(Team.values.length, (_) => generator()),
-        _context = context;
+  TeamCollection.generate(T Function() generator, [PlayerContext? context])
+    : _items = List.generate(Team.values.length, (_) => generator()),
+      _context = context;
 
   /// Get by absolute team
   T operator [](Team team) => _items.forTeam(team);
@@ -142,8 +150,10 @@ class TeamCollection<T> {
   T? other() => _items.forRelativeTeam(RelativeTeam.other, _context);
 
   /// Set by relative team
-  bool setMine(T value) => _items.setForRelativeTeam(RelativeTeam.mine, value, _context);
-  bool setOther(T value) => _items.setForRelativeTeam(RelativeTeam.other, value, _context);
+  bool setMine(T value) =>
+      _items.setForRelativeTeam(RelativeTeam.mine, value, _context);
+  bool setOther(T value) =>
+      _items.setForRelativeTeam(RelativeTeam.other, value, _context);
 
   /// Get all teams
   Iterable<Team> get teams => Team.values;
@@ -152,7 +162,7 @@ class TeamCollection<T> {
   List<T> get values => List.from(_items);
 
   /// Iterate over team-value pairs
-  Iterable<MapEntry<Team, T>> get entries => 
+  Iterable<MapEntry<Team, T>> get entries =>
       Team.values.map((team) => MapEntry(team, _items.forTeam(team)));
 
   /// Apply function to all teams

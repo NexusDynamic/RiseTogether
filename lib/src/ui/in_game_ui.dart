@@ -11,11 +11,41 @@ import 'package:rise_together/src/game/distance_tracker.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 
+/// Manages button states for simulated player controls
+class SimulatedPlayerController extends ChangeNotifier {
+  final Map<String, PaddleAction> _activeActions = {};
+
+  PaddleAction getPlayerAction(String playerId) {
+    return _activeActions[playerId] ?? PaddleAction.none;
+  }
+
+  void setPlayerAction(String playerId, PaddleAction action) {
+    if (_activeActions[playerId] != action) {
+      _activeActions[playerId] = action;
+      notifyListeners();
+    }
+  }
+
+  void clearPlayerAction(String playerId) {
+    if (_activeActions.containsKey(playerId)) {
+      _activeActions.remove(playerId);
+      notifyListeners();
+    }
+  }
+
+  bool isPlayerActionActive(String playerId, PaddleAction action) {
+    return _activeActions[playerId] == action;
+  }
+}
+
 class InGameUI extends StatelessWidget
     with AppLogging, AppSettings, TeamColorProvider
     implements RiseTogetherOverlay {
   static final String overlayID = 'inGameUI';
   final RiseTogetherGame game;
+  final SimulatedPlayerController _simulatedController =
+      SimulatedPlayerController();
+
   InGameUI(this.game, {super.key});
 
   @override
@@ -24,11 +54,14 @@ class InGameUI extends StatelessWidget
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
 
-    return Stack(
-      children: [
-        _buildTimeDisplay(context, screenWidth),
-        _buildTeamControls(context, screenWidth, screenHeight),
-      ],
+    return ChangeNotifierProvider.value(
+      value: _simulatedController,
+      child: Stack(
+        children: [
+          _buildTimeDisplay(context, screenWidth),
+          _buildTeamControls(context, screenWidth, screenHeight),
+        ],
+      ),
     );
   }
 
@@ -89,6 +122,19 @@ class InGameUI extends StatelessWidget
                 );
               },
             ),
+            SizedBox(height: 5),
+            // If debug mode, show "DEMO MODE" text
+            if (_isDebugMode())
+              Text(
+                'DEMO MODE',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  backgroundColor: Color.fromARGB(150, 0, 0, 0),
+                  color: Color.fromARGB(255, 255, 0, 0),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
           ],
         ),
       ),
@@ -114,32 +160,29 @@ class InGameUI extends StatelessWidget
               ],
             ),
           ),
-          // Current player controls - Left side
-          Positioned(
-            left: 20,
-            bottom: 50,
-            child: _buildCurrentPlayerControls(
-              side: 'left',
-              screenHeight: screenHeight,
-            ),
-          ),
-          // Current player controls - Right side
-          Positioned(
-            right: 20,
-            bottom: 50,
-            child: _buildCurrentPlayerControls(
-              side: 'right',
-              screenHeight: screenHeight,
-            ),
-          ),
-          // Debug controls at bottom center (if debug mode enabled)
-          if (_isDebugMode())
+          // Show either simulated or current player controls based on setting
+          if (_isSimulatedMode())
+            ..._buildSimulatedPlayerControls(screenWidth, screenHeight)
+          else ...[
+            // Current player controls - Left side
             Positioned(
-              bottom: 20,
-              left: 0,
-              right: 0,
-              child: _buildDebugControls(screenHeight),
+              left: 20,
+              bottom: 50,
+              child: _buildCurrentPlayerControls(
+                side: 'left',
+                screenHeight: screenHeight,
+              ),
             ),
+            // Current player controls - Right side
+            Positioned(
+              right: 20,
+              bottom: 50,
+              child: _buildCurrentPlayerControls(
+                side: 'right',
+                screenHeight: screenHeight,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -175,55 +218,23 @@ class InGameUI extends StatelessWidget
           playerId: 'currentPlayer',
           action: side == 'left' ? PaddleAction.left : PaddleAction.right,
           icon: CupertinoIcons.arrow_up_to_line,
-          color: side == 'left' 
-            ? getTeamColorWithOpacity(Team.a, 0.8)
-            : getTeamColorWithOpacity(Team.b, 0.8),
+          color: side == 'left'
+              ? getTeamColorWithOpacity(Team.a, 0.8)
+              : getTeamColorWithOpacity(Team.b, 0.8),
           size: 60,
         ),
       ],
     );
   }
 
-  Widget _buildDebugControls(double screenHeight) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Debug Controls',
-            style: const TextStyle(
-              color: Color.fromARGB(150, 255, 255, 255),
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              backgroundColor: Color.fromARGB(150, 0, 0, 0),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Column(
-                children: [
-                  Text(Team.a.shortName, style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
-                  _buildPlayerControls(Team.a.id, 'player1'),
-                  const SizedBox(height: 10),
-                  _buildPlayerControls(Team.a.id, 'player2'),
-                ],
-              ),
-              const SizedBox(width: 40),
-              Column(
-                children: [
-                  Text(Team.b.shortName, style: TextStyle(color: Color.fromARGB(150, 255, 255, 255), fontSize: 12)),
-                  _buildPlayerControls(Team.b.id, 'player1'),
-                  const SizedBox(height: 10),
-                  _buildPlayerControls(Team.b.id, 'player2'),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+  bool _isSimulatedMode() {
+    try {
+      return appSettings.getBool('game.simulated_players');
+    } catch (e) {
+      // Fallback to false if setting is not available
+      appLog.warning('Could not access simulated_players setting: $e');
+      return false;
+    }
   }
 
   bool _isDebugMode() {
@@ -231,29 +242,119 @@ class InGameUI extends StatelessWidget
       return appSettings.getBool('game.debug_mode');
     } catch (e) {
       // Fallback to false if setting is not available
-      appLog.warning('Could not access debug_mode setting: $e');
+      appLog.warning('Could not access debug.enabled setting: $e');
       return false;
     }
   }
 
-  Widget _buildPlayerControls(int teamId, String playerId) {
-    return Row(
+  List<Widget> _buildSimulatedPlayerControls(
+    double screenWidth,
+    double screenHeight,
+  ) {
+    return [
+      // Left team controls (Team A)
+      Positioned(
+        left: 20,
+        bottom: 50,
+        child: _buildSimulatedTeamControls(
+          team: Team.a,
+          screenHeight: screenHeight,
+        ),
+      ),
+      // Right team controls (Team B)
+      Positioned(
+        right: 20,
+        bottom: 50,
+        child: _buildSimulatedTeamControls(
+          team: Team.b,
+          screenHeight: screenHeight,
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildSimulatedTeamControls({
+    required Team team,
+    required double screenHeight,
+  }) {
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildActionButton(
-          teamId: teamId,
-          playerId: playerId,
-          action: PaddleAction.left,
-          icon: CupertinoIcons.arrow_up_to_line,
-          color: getTeamColorWithOpacity(Team.fromId(teamId), 0.7),
+        Text(
+          team.shortName,
+          style: const TextStyle(
+            color: Color.fromARGB(200, 255, 255, 255),
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            backgroundColor: Color.fromARGB(150, 0, 0, 0),
+          ),
         ),
-        const SizedBox(width: 20),
-        _buildActionButton(
-          teamId: teamId,
-          playerId: playerId,
-          action: PaddleAction.right,
-          icon: CupertinoIcons.arrow_up_to_line,
-          color: getTeamAccentColor(Team.fromId(teamId)).withValues(alpha: 0.7),
+        const SizedBox(height: 15),
+        // Players side-by-side
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Player 1 controls
+            _buildSimulatedPlayerRow(
+              team: team,
+              playerId: 'P${team.id * 2 + 1}',
+              playerLabel: 'P${team.id * 2 + 1} (iPad${team.id * 2 + 1})',
+              screenHeight: screenHeight,
+            ),
+            const SizedBox(width: 30),
+            // Player 2 controls
+            _buildSimulatedPlayerRow(
+              team: team,
+              playerId: 'P${team.id * 2 + 2}',
+              playerLabel: 'P${team.id * 2 + 2} (iPad${team.id * 2 + 2})',
+              screenHeight: screenHeight,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSimulatedPlayerRow({
+    required Team team,
+    required String playerId,
+    required String playerLabel,
+    required double screenHeight,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          playerLabel,
+          style: const TextStyle(
+            color: Color.fromARGB(200, 255, 255, 255),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            backgroundColor: Color.fromARGB(100, 0, 0, 0),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildActionButton(
+              teamId: team.id,
+              playerId: playerId,
+              action: PaddleAction.left,
+              icon: CupertinoIcons.arrow_up_left,
+              color: getTeamColorWithOpacity(team, 0.8),
+              size: 55,
+            ),
+            const SizedBox(width: 25),
+            _buildActionButton(
+              teamId: team.id,
+              playerId: playerId,
+              action: PaddleAction.right,
+              icon: CupertinoIcons.arrow_up_right,
+              color: getTeamAccentColor(team).withValues(alpha: 0.8),
+              size: 55,
+            ),
+          ],
         ),
       ],
     );
@@ -267,33 +368,72 @@ class InGameUI extends StatelessWidget
     required Color color,
     double size = 40,
   }) {
-    return Listener(
-      onPointerDown: (_) => _sendAction(teamId, playerId, action),
-      onPointerUp: (_) => _sendAction(teamId, playerId, PaddleAction.none),
-      onPointerCancel: (_) => _sendAction(teamId, playerId, PaddleAction.none),
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Color.fromARGB(150, 0, 0, 0),
-              spreadRadius: 2,
-              blurRadius: 4,
-              offset: const Offset(0, 2),
+    return Consumer<SimulatedPlayerController>(
+      builder: (context, controller, child) {
+        final isActive = controller.isPlayerActionActive(playerId, action);
+        final effectiveColor = isActive ? color : color.withValues(alpha: 0.5);
+
+        return Listener(
+          onPointerDown: (_) =>
+              _handleActionPress(teamId, playerId, action, controller),
+          onPointerUp: (_) =>
+              _handleActionRelease(teamId, playerId, controller),
+          onPointerCancel: (_) =>
+              _handleActionRelease(teamId, playerId, controller),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: effectiveColor,
+              shape: BoxShape.circle,
+              border: isActive
+                  ? Border.all(
+                      color: Color.fromARGB(255, 255, 255, 255),
+                      width: 2,
+                    )
+                  : null,
+              boxShadow: [
+                BoxShadow(
+                  color: Color.fromARGB(150, 0, 0, 0),
+                  spreadRadius: 2,
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Icon(
-          icon,
-          color: Color.fromARGB(255, 0, 0, 0),
-          size: size * 0.6,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+            child: Icon(
+              icon,
+              color: Color.fromARGB(255, 255, 255, 255),
+              size: size * 0.6,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  void _handleActionPress(
+    int teamId,
+    String playerId,
+    PaddleAction action,
+    SimulatedPlayerController controller,
+  ) {
+    // Set the action in the controller (this will clear any other action for this player)
+    controller.setPlayerAction(playerId, action);
+    // Send the action to the game
+    _sendAction(teamId, playerId, action);
+  }
+
+  void _handleActionRelease(
+    int teamId,
+    String playerId,
+    SimulatedPlayerController controller,
+  ) {
+    // Clear the action in the controller
+    controller.clearPlayerAction(playerId);
+    // Send none action to the game
+    _sendAction(teamId, playerId, PaddleAction.none);
   }
 
   void _sendAction(int teamId, String playerId, PaddleAction action) {

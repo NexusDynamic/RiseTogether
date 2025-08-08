@@ -68,7 +68,7 @@ class LevelTransitionUI extends StatelessWidget
       builder: (ctx, _) {
         final tournamentManager = Provider.of<TournamentManager>(ctx);
         final isComplete = tournamentManager.isTournamentComplete;
-        
+
         return Column(
           children: [
             Text(
@@ -105,10 +105,11 @@ class LevelTransitionUI extends StatelessWidget
         final team2Distance = distanceTracker.getFormattedDistance(1);
         final team1Raw = distanceTracker.getTeamDistance(0);
         final team2Raw = distanceTracker.getTeamDistance(1);
-        
-        final winner = team1Raw > team2Raw ? 'Team 1' : 
-                      (team2Raw > team1Raw ? 'Team 2' : 'Tie');
-        
+
+        final winner = team1Raw > team2Raw
+            ? 'Team 1'
+            : (team2Raw > team1Raw ? 'Team 2' : 'Tie');
+
         return Container(
           padding: EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -135,11 +136,13 @@ class LevelTransitionUI extends StatelessWidget
               ),
               SizedBox(height: 15),
               Text(
-                winner == 'Tie' ? 'Level ended in a tie!' : '$winner wins this level!',
+                winner == 'Tie'
+                    ? 'Level ended in a tie!'
+                    : '$winner wins this level!',
                 style: TextStyle(
-                  color: winner == 'Tie' ? 
-                    Color.fromARGB(255, 255, 255, 0) : 
-                    Color.fromARGB(255, 0, 255, 0),
+                  color: winner == 'Tie'
+                      ? Color.fromARGB(255, 255, 255, 0)
+                      : Color.fromARGB(255, 0, 255, 0),
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -155,13 +158,13 @@ class LevelTransitionUI extends StatelessWidget
     return Container(
       padding: EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: isWinner ? 
-          Color.fromARGB(100, 0, 255, 0) : 
-          Color.fromARGB(50, 100, 100, 100),
+        color: isWinner
+            ? Color.fromARGB(100, 0, 255, 0)
+            : Color.fromARGB(50, 100, 100, 100),
         borderRadius: BorderRadius.circular(10),
-        border: isWinner ? 
-          Border.all(color: Color.fromARGB(255, 0, 255, 0), width: 2) : 
-          null,
+        border: isWinner
+            ? Border.all(color: Color.fromARGB(255, 0, 255, 0), width: 2)
+            : null,
       ),
       child: Column(
         children: [
@@ -200,7 +203,7 @@ class LevelTransitionUI extends StatelessWidget
       value: game.tournamentManager,
       builder: (ctx, _) {
         final tournamentManager = Provider.of<TournamentManager>(ctx);
-        
+
         return Container(
           padding: EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -261,16 +264,17 @@ class LevelTransitionUI extends StatelessWidget
       builder: (ctx, _) {
         final tournamentManager = Provider.of<TournamentManager>(ctx);
         final isComplete = tournamentManager.isTournamentComplete;
-        
+
         return GestureDetector(
           onTap: _handleReady,
           child: Container(
             width: 200,
             height: 60,
             decoration: BoxDecoration(
-              color: isComplete ? 
-                Color.fromARGB(255, 255, 100, 0) :  // Orange for back to menu
-                Color.fromARGB(255, 0, 150, 255),   // Blue for next level
+              color: isComplete
+                  ? Color.fromARGB(255, 255, 100, 0)
+                  : // Orange for back to menu
+                    Color.fromARGB(255, 0, 150, 255), // Blue for next level
               borderRadius: BorderRadius.circular(30),
               boxShadow: [
                 BoxShadow(
@@ -299,7 +303,7 @@ class LevelTransitionUI extends StatelessWidget
 
   void _handleReady() {
     appLog.info('Ready button pressed');
-    
+
     if (game.tournamentManager.isTournamentComplete) {
       // Tournament is complete, go back to main menu
       game.overlays.remove(LevelTransitionUI.overlayID);
@@ -312,45 +316,47 @@ class LevelTransitionUI extends StatelessWidget
 
   void _advanceToNextLevel() {
     appLog.info('Advancing to next level');
-    
+
     // Remove this overlay
     game.overlays.remove(LevelTransitionUI.overlayID);
-    
+
     // Reset level-specific state (but keep tournament progress)
     game.timeProvider.reset();
     game.distanceTracker.resetDistances();
-    
+
     // Reset world components for next level
     for (final world in game.worlds) {
       if (world is Resetable) {
         (world as Resetable).reset();
       }
     }
-    
+
     // Reset world controllers for next level
     for (final controller in game.worldControllers) {
       if (controller is Resetable) {
         (controller as Resetable).reset();
       }
     }
-    
+
     // Explicitly reset ball and paddle positions
     for (int i = 0; i < game.worlds.length; i++) {
       final world = game.worlds[i];
-      
+
       // Reset ball using its reset method
       if (world.ball.isMounted) {
         world.ball.reset();
         appLog.info('Reset ball $i to position: ${world.ball.startPosition}');
       }
-      
+
       // Reset paddle using its reset method
       if (world.paddle.isMounted) {
         world.paddle.reset();
-        appLog.info('Reset paddle $i to position: ${world.paddle.startPosition}');
+        appLog.info(
+          'Reset paddle $i to position: ${world.paddle.startPosition}',
+        );
       }
     }
-    
+
     // Re-initialize starting heights for distance tracking after reset
     for (int i = 0; i < game.worlds.length; i++) {
       final world = game.worlds[i];
@@ -360,7 +366,7 @@ class LevelTransitionUI extends StatelessWidget
         appLog.info('Set starting height for team $i: $ballStartHeight');
       }
     }
-    
+
     // Add the in-game UI overlay and resume game
     game.overlays.add('inGameUI');
     game.resumeEngine();
