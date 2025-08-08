@@ -11,7 +11,7 @@ import 'package:rise_together/src/ui/level_transition_ui.dart';
 import 'package:rise_together/src/ui/survey_ui.dart';
 import 'package:rise_together/src/ui/coordination_ui.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
-import 'package:rise_together/src/services/coordination_manager.dart';
+import 'package:rise_together/src/services/network_coordinator.dart';
 
 class AnyInputScrollBehavior extends CupertinoScrollBehavior {
   // Override behavior methods and getters like dragDevices
@@ -32,18 +32,18 @@ class RiseTogetherApp extends StatefulWidget {
 
 class _RiseTogetherAppState extends State<RiseTogetherApp>
     with AppLogging, AppSettings {
-  late final CoordinationManager coordinationManager;
+  late final NetworkCoordinator networkCoordinator;
   late final RiseTogetherGame game;
 
   @override
   void initState() {
     super.initState();
     initSettings();
-    coordinationManager = CoordinationManager();
+    networkCoordinator = NetworkCoordinator();
     game = RiseTogetherGame();
 
-    // Pass coordination manager to game
-    game.coordinationManager = coordinationManager;
+    // Pass network coordinator to game
+    game.networkCoordinator = networkCoordinator;
 
     // Initialize coordination manager asynchronously without blocking UI
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -54,7 +54,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
   Future<void> _initializeCoordination() async {
     try {
       appLog.info('Starting coordination initialization...');
-      await coordinationManager.initialize();
+      await networkCoordinator.initialize();
       appLog.info('Coordination initialization completed successfully');
     } catch (error) {
       appLog.severe('Failed to initialize coordination: $error');
@@ -65,7 +65,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
 
   @override
   void dispose() {
-    coordinationManager.dispose();
+    networkCoordinator.dispose();
     super.dispose();
   }
 
@@ -83,7 +83,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
           InGameUI.overlayID: (context, game) =>
               InGameUI(game as RiseTogetherGame),
           MainMenuUI.overlayID: (context, game) =>
-              MainMenuUI(game as RiseTogetherGame, coordinationManager),
+              MainMenuUI(game as RiseTogetherGame, networkCoordinator),
           SettingsUI.overlayID: (context, game) =>
               SettingsUI(game as RiseTogetherGame),
           LevelTransitionUI.overlayID: (context, game) =>
@@ -91,7 +91,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
           SurveyUI.overlayID: (context, game) =>
               SurveyUI(game as RiseTogetherGame),
           CoordinationUI.overlayID: (context, game) =>
-              CoordinationUI(game as RiseTogetherGame, coordinationManager),
+              CoordinationUI(game as RiseTogetherGame, networkCoordinator),
         },
       ),
     );

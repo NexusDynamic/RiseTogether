@@ -1,5 +1,6 @@
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/models/player_action.dart';
+import 'package:rise_together/src/services/network_coordinator.dart';
 import 'stub_bridge.dart'
     if (dart.library.js_interop) 'web/web_bridge.dart' // Web/WASM
     if (dart.library.io) 'native/native_bridge.dart'; // Native
@@ -13,15 +14,10 @@ abstract class NetworkBridge {
   factory NetworkBridge(
     ActionStreamManager actionManager, {
     bool useLocalNetwork = true,
-    String? deviceId,
-    String? deviceName,
-    dynamic performancePreset, // Use dynamic to avoid import issues
-    dynamic coordinationManager,
+    NetworkCoordinator? networkCoordinator,
   }) => getNetworkBridge(
     actionManager,
     useLocalNetwork: useLocalNetwork,
-    deviceId: deviceId,
-    deviceName: deviceName,
-    performancePreset: performancePreset,
+    networkCoordinator: networkCoordinator,
   );
 }

@@ -25,7 +25,7 @@ class LocalActionBridge with AppLogging implements NetworkBridge {
 
     final teamStream = actionManager.getTeamStream(teamId);
     if (teamStream != null) {
-      teamStream.addAction(PlayerAction(playerId, action));
+      teamStream.addAction(GameAction(playerId, action));
     } else {
       appLog.warning('No team stream found for team $teamId');
     }

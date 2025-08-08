@@ -5,16 +5,16 @@ import 'package:rise_together/src/ui/in_game_ui.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/services/log_service.dart';
-import 'package:rise_together/src/services/coordination_manager.dart';
+import 'package:rise_together/src/services/network_coordinator.dart';
 
 class MainMenuUI extends StatelessWidget
     with AppLogging
     implements RiseTogetherOverlay {
   static final String overlayID = 'MainMenu';
   final RiseTogetherGame game;
-  final CoordinationManager coordinationManager;
+  final NetworkCoordinator networkCoordinator;
 
-  MainMenuUI(this.game, this.coordinationManager, {super.key});
+  MainMenuUI(this.game, this.networkCoordinator, {super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -86,10 +86,10 @@ class MainMenuUI extends StatelessWidget
           
           // Coordination button (if coordinator) - reactive to role changes
           ChangeNotifierProvider.value(
-            value: coordinationManager,
-            child: Consumer<CoordinationManager>(
-              builder: (context, manager, child) {
-                return manager.isCoordinator
+            value: networkCoordinator,
+            child: Consumer<NetworkCoordinator>(
+              builder: (context, coordinator, child) {
+                return coordinator.isCoordinator
                   ? Positioned(
                       top: screenHeight * 0.65,
                       left: screenWidth * 0.25,
@@ -210,9 +210,9 @@ class MainMenuUI extends StatelessWidget
 
   Widget _buildNetworkStatus(BuildContext context) {
     return ChangeNotifierProvider.value(
-      value: coordinationManager,
-      child: Consumer<CoordinationManager>(
-        builder: (context, manager, child) {
+      value: networkCoordinator,
+      child: Consumer<NetworkCoordinator>(
+        builder: (context, coordinator, child) {
           return Container(
             padding: EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -233,18 +233,18 @@ class MainMenuUI extends StatelessWidget
                 ),
                 SizedBox(height: 5),
                 Text(
-                  manager.isInitialized 
-                    ? (manager.isCoordinator ? 'Coordinator' : 'Participant')
+                  coordinator.isInitialized 
+                    ? (coordinator.isCoordinator ? 'Coordinator' : 'Participant')
                     : 'Connecting...',
                   style: TextStyle(
-                    color: manager.isInitialized 
+                    color: coordinator.isInitialized 
                       ? Color.fromARGB(255, 0, 255, 0)
                       : Color.fromARGB(255, 255, 255, 0),
                     fontSize: 12,
                   ),
                 ),
                 Text(
-                  'Nodes: ${manager.connectedNodes.length}',
+                  'Nodes: ${coordinator.connectedNodes.length}',
                   style: TextStyle(
                     color: Color.fromARGB(200, 255, 255, 255),
                     fontSize: 12,

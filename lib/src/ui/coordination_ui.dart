@@ -2,7 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
-import 'package:rise_together/src/services/coordination_manager.dart';
+import 'package:rise_together/src/services/network_coordinator.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
 class CoordinationUI extends StatelessWidget
@@ -10,9 +10,9 @@ class CoordinationUI extends StatelessWidget
     implements RiseTogetherOverlay {
   static final String overlayID = 'Coordination';
   final RiseTogetherGame game;
-  final CoordinationManager coordinationManager;
+  final NetworkCoordinator networkCoordinator;
 
-  CoordinationUI(this.game, this.coordinationManager, {super.key});
+  CoordinationUI(this.game, this.networkCoordinator, {super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -77,12 +77,12 @@ class CoordinationUI extends StatelessWidget
           ),
           SizedBox(height: 10),
           ChangeNotifierProvider.value(
-            value: coordinationManager,
-            child: Consumer<CoordinationManager>(
-              builder: (context, manager, child) {
+            value: networkCoordinator,
+            child: Consumer<NetworkCoordinator>(
+              builder: (context, coordinator, child) {
                 return Text(
-                  'Status: ${manager.isCoordinator ? "Coordinator" : "Participant"} | '
-                  'Nodes: ${manager.connectedNodes.length}',
+                  'Status: ${coordinator.isCoordinator ? "Coordinator" : "Participant"} | '
+                  'Nodes: ${coordinator.connectedNodes.length}',
                   style: TextStyle(
                     color: Color.fromARGB(200, 255, 255, 255),
                     fontSize: 16,
@@ -98,9 +98,9 @@ class CoordinationUI extends StatelessWidget
 
   Widget _buildContent(BuildContext context) {
     return ChangeNotifierProvider.value(
-      value: coordinationManager,
-      child: Consumer<CoordinationManager>(
-        builder: (context, manager, child) {
+      value: networkCoordinator,
+      child: Consumer<NetworkCoordinator>(
+        builder: (context, coordinator, child) {
           return Padding(
             padding: EdgeInsets.all(20),
             child: Column(
@@ -116,13 +116,13 @@ class CoordinationUI extends StatelessWidget
                 ),
                 SizedBox(height: 15),
                 Expanded(
-                  child: manager.connectedNodes.isEmpty
+                  child: coordinator.connectedNodes.isEmpty
                     ? _buildEmptyState()
-                    : _buildNodeList(manager),
+                    : _buildNodeList(coordinator),
                 ),
-                if (manager.isCoordinator) ...[
+                if (coordinator.isCoordinator) ...[
                   SizedBox(height: 20),
-                  _buildCoordinatorControls(manager),
+                  _buildCoordinatorControls(coordinator),
                 ],
               ],
             ),
@@ -164,12 +164,12 @@ class CoordinationUI extends StatelessWidget
     );
   }
 
-  Widget _buildNodeList(CoordinationManager manager) {
+  Widget _buildNodeList(NetworkCoordinator coordinator) {
     return ListView.builder(
-      itemCount: manager.connectedNodes.length,
+      itemCount: coordinator.connectedNodes.length,
       itemBuilder: (context, index) {
-        final node = manager.connectedNodes[index];
-        final assignment = manager.playerAssignments
+        final node = coordinator.connectedNodes[index];
+        final assignment = coordinator.playerAssignments
             .where((a) => a.nodeId == node.nodeId)
             .firstOrNull;
         
@@ -180,7 +180,7 @@ class CoordinationUI extends StatelessWidget
             color: Color.fromARGB(100, 50, 50, 50),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: node.nodeId == manager.deviceId
+              color: node.nodeId == coordinator.deviceId
                 ? Color.fromARGB(255, 0, 255, 0)
                 : Color.fromARGB(50, 255, 255, 255),
               width: 1,
@@ -224,15 +224,15 @@ class CoordinationUI extends StatelessWidget
                   ],
                 ),
               ),
-              if (node.nodeId == manager.deviceId)
+              if (node.nodeId == coordinator.deviceId)
                 Icon(
                   CupertinoIcons.checkmark_circle_fill,
                   color: Color.fromARGB(255, 0, 255, 0),
                   size: 24,
                 ),
-              if (manager.isCoordinator && node.nodeId != manager.deviceId) ...[
+              if (coordinator.isCoordinator && node.nodeId != coordinator.deviceId) ...[
                 SizedBox(width: 10),
-                _buildTeamAssignmentButtons(manager, node.nodeId),
+                _buildTeamAssignmentButtons(coordinator, node.nodeId),
               ],
             ],
           ),
@@ -241,23 +241,23 @@ class CoordinationUI extends StatelessWidget
     );
   }
 
-  Widget _buildTeamAssignmentButtons(CoordinationManager manager, String nodeId) {
+  Widget _buildTeamAssignmentButtons(NetworkCoordinator coordinator, String nodeId) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildTeamButton(manager, nodeId, 0, 'Team 1'),
+        _buildTeamButton(coordinator, nodeId, 0, 'Team 1'),
         SizedBox(width: 5),
-        _buildTeamButton(manager, nodeId, 1, 'Team 2'),
+        _buildTeamButton(coordinator, nodeId, 1, 'Team 2'),
       ],
     );
   }
 
-  Widget _buildTeamButton(CoordinationManager manager, String nodeId, int teamId, String label) {
-    final isAssigned = manager.playerAssignments
+  Widget _buildTeamButton(NetworkCoordinator coordinator, String nodeId, int teamId, String label) {
+    final isAssigned = coordinator.playerAssignments
         .any((a) => a.nodeId == nodeId && a.teamId == teamId);
     
     return GestureDetector(
-      onTap: () => manager.assignNodeToTeam(nodeId, teamId),
+      onTap: () => coordinator.assignNodeToTeam(nodeId, teamId),
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
@@ -278,7 +278,7 @@ class CoordinationUI extends StatelessWidget
     );
   }
 
-  Widget _buildCoordinatorControls(CoordinationManager manager) {
+  Widget _buildCoordinatorControls(NetworkCoordinator coordinator) {
     return Container(
       padding: EdgeInsets.all(15),
       decoration: BoxDecoration(
@@ -298,7 +298,7 @@ class CoordinationUI extends StatelessWidget
           ),
           SizedBox(height: 10),
           Text(
-            'Assign nodes to teams above. Game can start with ${manager.canStartGame() ? "current" : "no"} assignments.',
+            'Assign nodes to teams above. Game can start with ${coordinator.canStartGame() ? "current" : "no"} assignments.',
             style: TextStyle(
               color: Color.fromARGB(200, 255, 255, 255),
               fontSize: 14,

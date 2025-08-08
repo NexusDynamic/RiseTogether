@@ -7,24 +7,24 @@ import 'package:rise_together/src/models/team_thrust.dart';
 class TeamActionStream {
   final int teamId;
   final int maxPlayers;
-  final StreamController<PlayerAction> _controller =
-      StreamController<PlayerAction>.broadcast();
+  final StreamController<GameAction> _controller =
+      StreamController<GameAction>.broadcast();
   final Map<String, PaddleAction> _currentActions = {};
 
-  Stream<PlayerAction> get actionStream => _controller.stream;
+  Stream<GameAction> get actionStream => _controller.stream;
   Stream<TeamThrust> get thrustStream =>
       _controller.stream.map((_) => _calculateThrust());
 
   TeamActionStream({required this.teamId, required this.maxPlayers});
 
-  void addAction(PlayerAction action) {
+  void addAction(GameAction action) {
     _currentActions[action.playerId] = action.action;
     _controller.add(action);
   }
 
   void removePlayer(String playerId) {
     _currentActions.remove(playerId);
-    _controller.add(PlayerAction(playerId, PaddleAction.none));
+    _controller.add(GameAction(playerId, PaddleAction.none));
   }
 
   TeamThrust _calculateThrust() {
