@@ -9,6 +9,10 @@ dependencies:
   flutter:
     sdk: flutter
   liblsl: ^0.8.0
+  # temporary local dependency for liblsl_coordinator
+  # to be removed when liblsl_coordinator is published
+  liblsl_coordinator: 
+    path: ../liblsl.dart/packages/liblsl_coordinator
   cupertino_icons: ^1.0.8
   flame_forge2d: ^0.19.0+2
   flame: ^1.29.0
