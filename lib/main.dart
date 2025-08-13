@@ -23,8 +23,10 @@ class AnyInputScrollBehavior extends CupertinoScrollBehavior {
   };
 }
 
-class RiseTogetherApp extends StatefulWidget {
-  const RiseTogetherApp({super.key});
+class RiseTogetherApp extends StatefulWidget with AppSettings {
+  RiseTogetherApp({super.key}) {
+    initSettings();
+  }
 
   @override
   State<RiseTogetherApp> createState() => _RiseTogetherAppState();
@@ -38,16 +40,14 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
   @override
   void initState() {
     super.initState();
-    initSettings();
-    networkCoordinator = NetworkCoordinator();
     game = RiseTogetherGame();
+    initSettings().then((_) {
+      networkCoordinator = NetworkCoordinator();
 
-    // Pass network coordinator to game
-    game.networkCoordinator = networkCoordinator;
-
-    // Initialize coordination manager asynchronously without blocking UI
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeCoordination();
+      // Initialize coordination manager asynchronously without blocking UI
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _initializeCoordination();
+      });
     });
   }
 
@@ -56,6 +56,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
       appLog.info('Starting coordination initialization...');
       await networkCoordinator.initialize();
       appLog.info('Coordination initialization completed successfully');
+      game.networkCoordinator = networkCoordinator;
     } catch (error) {
       appLog.severe('Failed to initialize coordination: $error');
       // Don't crash the app, just continue without network coordination
@@ -99,6 +100,8 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
 }
 
 void main() {
+  final _ = LogService();
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(
     EasyLocalization(
       supportedLocales: [Locale('en'), Locale('da')],

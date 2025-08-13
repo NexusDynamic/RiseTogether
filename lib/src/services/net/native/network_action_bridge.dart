@@ -44,12 +44,11 @@ class NetworkActionBridge with AppLogging implements NetworkBridge {
       return;
     }
 
-    appLog.fine(
-      'Sending action: team=$teamId, player=$playerId, action=$action',
-    );
-
     try {
       // Send through coordinator's network layer
+      appLog.fine(
+        'Sending action: team=$teamId, player=$playerId, action=$action to network coordinator',
+      );
       coordinator.sendGameAction(teamId, playerId, action);
     } catch (e) {
       appLog.severe('Failed to send action over network: $e');

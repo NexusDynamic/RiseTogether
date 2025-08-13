@@ -106,10 +106,10 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
   /// Create optimized coordination config for RiseTogether
   static CoordinationConfig createCoordinationConfig() {
     return CoordinationConfig(
-      discoveryInterval: 2.0,
+      discoveryInterval: 1.0,
       heartbeatInterval: 1.0,
       nodeTimeout: 5.0,
-      joinTimeout: 10.0,
+      joinTimeout: 5.0,
       maxNodes: 20, // Support up to 20 devices
       autoPromote: true,
       receiveOwnMessages: true, // Enable coordinator participation in game
@@ -136,6 +136,8 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
       channelCount: 3, // [teamId, actionIndex, playerIdHash]
       bufferSize: 1000,
       useIsolate: true,
+      useIsolateInlet: false,
+      useIsolateOutlet: false,
     );
   }
 
@@ -150,6 +152,8 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
           channelCount: 3,
           bufferSize: 2000,
           useIsolate: true,
+          useIsolateInlet: false,
+          useIsolateOutlet: false,
         );
       case PerformancePreset.balanced:
         return HighFrequencyConfig(
@@ -159,6 +163,8 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
           channelCount: 3,
           bufferSize: 1000,
           useIsolate: true,
+          useIsolateInlet: false,
+          useIsolateOutlet: false,
         );
       case PerformancePreset.lowCPU:
         return HighFrequencyConfig(
@@ -168,6 +174,8 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
           channelCount: 3,
           bufferSize: 500,
           useIsolate: true,
+          useIsolateInlet: false,
+          useIsolateOutlet: false,
         );
     }
   }

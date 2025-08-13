@@ -54,7 +54,7 @@ class LogService {
 
   bool _isFileLoggingEnabled = false;
   String? _logFilePath;
-  Level _minLevel = Level.INFO;
+  Level _minLevel = Level.ALL;
 
   static const int _bufferSize = 100;
   static const Duration _flushInterval = Duration(seconds: 1);

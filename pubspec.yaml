@@ -8,7 +8,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  #liblsl: ^0.8.0
+  # liblsl: ^0.9.0
   liblsl:
     path: ../liblsl.dart/packages/liblsl
   # temporary local dependency for liblsl_coordinator

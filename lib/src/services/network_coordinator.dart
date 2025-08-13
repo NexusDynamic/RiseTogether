@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart' hide PlayerAction;
 import 'package:rise_together/src/services/net/network_config.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -43,7 +42,7 @@ class PlayerAssignment {
 
 /// Modern network coordinator using MultiLayerCoordinator
 class NetworkCoordinator extends ChangeNotifier with AppLogging {
-  MultiLayerCoordinator? _multiLayerCoordinator;
+  GamingCoordinationNode? _multiLayerCoordinator;
   StreamSubscription? _eventSubscription;
   StreamSubscription? _gameDataSubscription;
 
@@ -58,7 +57,6 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
 
   // Game action streaming
   ActionStreamManager? _actionManager;
-  CoordinationLayer? _gameLayer;
 
   // Getters
   bool get isInitialized => _isInitialized;
@@ -71,7 +69,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
   List<NetworkNode> get connectedNodes => List.unmodifiable(_connectedNodes);
   List<PlayerAssignment> get playerAssignments =>
       _playerAssignments.values.toList();
-  MultiLayerCoordinator? get coordinationNode => _multiLayerCoordinator;
+  GamingCoordinationNode? get coordinationNode => _multiLayerCoordinator;
   ActionStreamManager? get actionManager => _actionManager;
 
   /// Initialize with networking enabled/disabled
@@ -94,50 +92,18 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       _deviceId = RiseTogetherNetworkConfig.generateDeviceId();
       _deviceName = RiseTogetherNetworkConfig.generateDeviceName();
 
-      // Create protocol config with coordination and game layers
-      final protocolConfig = ProtocolConfig(
-        protocolId: 'risetogether',
-        protocolName: 'RiseTogether Multi-Layer Protocol',
-        layers: [
-          // Coordination layer for player management, team assignments, etc
-          StreamLayerConfig(
-            layerId: 'coordination',
-            layerName: 'RiseTogether Coordination',
-            streamConfig: StreamConfig(
-              streamName: 'risetogether_coordination_$_deviceId',
-              streamType: LSLContentType.markers,
-              channelCount: 1,
-              sampleRate:
-                  LSL_IRREGULAR_RATE, // Low frequency for coordination messages
-              channelFormat: LSLChannelFormat.string,
-            ),
-            isPausable: false,
-            priority: LayerPriority.high,
-          ),
-          // Game data layer for high-frequency paddle actions
-          StreamLayerConfig(
-            layerId: 'gamedata',
-            layerName: 'RiseTogether Game Actions',
-            streamConfig: StreamConfig(
-              streamName: 'risetogether_actions_$_deviceId',
-              streamType: LSLContentType.markers,
-              channelCount: 3, // [teamId, actionIndex, playerIdHash]
-              sampleRate: 120.0, // High frequency for game actions
-              channelFormat: LSLChannelFormat.int32,
-            ),
-            isPausable: true,
-            priority: LayerPriority.high,
-          ),
-        ],
-      );
-
       // Create multi-layer coordinator
-      _multiLayerCoordinator = MultiLayerCoordinator(
+      _multiLayerCoordinator = GamingCoordinationNode(
         nodeId: _deviceId!,
         nodeName: _deviceName!,
-        protocolConfig: protocolConfig,
+        coordinationStreamName: 'risetogether_coordination',
+        gameDataStreamName: 'risetogether_actions',
         coordinationConfig:
             RiseTogetherNetworkConfig.createCoordinationConfig(),
+        gameDataConfig: RiseTogetherNetworkConfig.createGameDataConfig(
+          targetFrequency: 250.0,
+          useBusyWait: true,
+        ),
       );
 
       // Initialize and join network
@@ -192,14 +158,8 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
   void _setupGameDataLayer() {
     if (_multiLayerCoordinator == null) return;
 
-    _gameLayer = _multiLayerCoordinator!.getLayer('gamedata');
-    if (_gameLayer != null) {
-      // Subscribe to game data from all other nodes
-      _gameDataSubscription = _gameLayer!.dataStream.listen(
-        _handleGameDataEvent,
-      );
-      appLog.info('Game data layer set up for high-frequency actions');
-    }
+    _multiLayerCoordinator!.gameEventStream.listen(_handleGameDataEvent);
+    appLog.info('Game data layer set up for high-frequency actions');
   }
 
   void _setupEventListeners() {
@@ -270,47 +230,37 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
 
   void _refreshGameLayer() {
     // Re-get the game layer in case it was replaced
-    if (_multiLayerCoordinator != null) {
-      _gameLayer = _multiLayerCoordinator!.getLayer('gamedata');
-      appLog.info('Game layer refreshed: ${_gameLayer?.runtimeType}');
-      
-      // Re-establish the data stream subscription after layer replacement
-      _gameDataSubscription?.cancel();
-      if (_gameLayer != null) {
-        _gameDataSubscription = _gameLayer!.dataStream.listen(
-          _handleGameDataEvent,
-        );
-        appLog.info('Game data stream subscription re-established');
-      }
-    }
   }
 
-  void _handleGameDataEvent(LayerDataEvent event) {
+  void _handleGameDataEvent(GameEvent event) {
     // Only process game data events from the gamedata layer
-    if (event.layerId != 'gamedata' || !_gameActive || _actionManager == null)
+    if (!_gameActive || _actionManager == null) {
       return;
+    }
+    // for now, ignore anything that isn't an action
+    if (event.type != GameEventType.gameData) {
+      return;
+    }
+    final sample = GameDataSample.fromMap(event.data);
 
-    final sample = event.data;
-    if (sample.length >= 3) {
-      try {
-        final teamId = sample[0] as int;
-        final actionIndex = sample[1] as int;
-        final playerIdHash = sample[2] as int;
+    try {
+      final teamId = sample.channelData[0] as int;
+      final actionIndex = sample.channelData[1] as int;
+      final playerIdHash = sample.channelData[2] as int;
 
-        if (actionIndex >= 0 && actionIndex < PaddleAction.values.length) {
-          final action = PaddleAction.values[actionIndex];
-          final playerId = 'remote_${event.sourceNodeId}_$playerIdHash';
+      if (actionIndex >= 0 && actionIndex < PaddleAction.values.length) {
+        final action = PaddleAction.values[actionIndex];
+        final playerId = 'remote_${sample.sourceId}_$playerIdHash';
 
-          final teamStream = _actionManager!.getTeamStream(teamId);
-          teamStream?.addAction(GameAction(playerId, action));
+        final teamStream = _actionManager!.getTeamStream(teamId);
+        teamStream?.addAction(GameAction(playerId, action));
 
-          appLog.finest(
-            'Received network action: team=$teamId, player=$playerId, action=$action from ${event.sourceNodeId}',
-          );
-        }
-      } catch (e) {
-        appLog.warning('Error processing game data event: $e');
+        appLog.finest(
+          'Received network action: team=$teamId, player=$playerId, action=$action from ${sample.sourceId}',
+        );
       }
+    } catch (e) {
+      appLog.warning('Error processing game data event: $e');
     }
   }
 
@@ -329,7 +279,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     if (_multiLayerCoordinator == null) return;
 
     _connectedNodes.clear();
-    _connectedNodes.addAll(_multiLayerCoordinator!.knownNodes);
+    _connectedNodes.addAll(_multiLayerCoordinator!.gameParticipants);
 
     // Add ourselves if not in the list
     final selfExists = _connectedNodes.any((node) => node.nodeId == _deviceId);
@@ -392,7 +342,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       'assignments': _playerAssignments.map((k, v) => MapEntry(k, v.toMap())),
     };
 
-    _multiLayerCoordinator!.sendApplicationMessage(
+    _multiLayerCoordinator!.sendCoordinationMessage(
       'player_assignments',
       assignmentData,
     );
@@ -400,8 +350,10 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
 
   /// Send a game action over the network using the high-frequency game layer
   void sendGameAction(int teamId, String playerId, PaddleAction action) {
-    if (!_networkingEnabled || _gameLayer == null || !_gameActive) {
-      appLog.finest('Skipping game action: networking=$_networkingEnabled, gameActive=$_gameActive, layer=${_gameLayer != null}');
+    if (!_networkingEnabled || !_gameActive) {
+      appLog.finest(
+        'Skipping game action: networking=$_networkingEnabled, gameActive=$_gameActive}',
+      );
       return;
     }
 
@@ -409,28 +361,25 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       final playerIdHash = playerId.hashCode;
       final sample = [teamId, action.index, playerIdHash];
 
-      _gameLayer!.sendData(sample);
+      _multiLayerCoordinator!.sendGameData(sample);
       appLog.finest(
         'Sent game action: team=$teamId, player=$playerId, action=$action',
       );
     } catch (e) {
-      appLog.warning('Failed to send game action: $e - This suggests the game layer is still a placeholder. MultiLayerCoordinator may need more time to establish full coordination.');
+      appLog.warning(
+        'Failed to send game action: $e - This suggests the game layer is still a placeholder. MultiLayerCoordinator may need more time to establish full coordination.',
+      );
     }
   }
 
-  /// Start the game (disable new peer discovery, enable game data layer)
+  /// Start the game (enable game data layer)
   void startGame() {
     _gameActive = true;
 
     // Resume/unpause the game data layer
-    if (_gameLayer != null) {
-      _gameLayer!.resume();
-      appLog.info('Game data layer resumed for active gameplay');
-    }
 
-    appLog.info(
-      'Game started - peer discovery disabled, game data layer active',
-    );
+    _multiLayerCoordinator!.resumeGameDataTransport();
+    appLog.info('Game data layer resumed for active gameplay');
     notifyListeners();
   }
 
@@ -439,10 +388,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     _gameActive = false;
 
     // Pause the game data layer to save resources
-    if (_gameLayer != null) {
-      _gameLayer!.pause();
-      appLog.info('Game data layer paused');
-    }
+
+    _multiLayerCoordinator!.pauseGameDataTransport();
+    appLog.info('Game data layer paused');
 
     appLog.info(
       'Game stopped - peer discovery re-enabled, game data layer paused',
@@ -485,7 +433,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       return _connectedNodes.isNotEmpty ? _connectedNodes.first : null;
     }
 
-    final coordinatorId = _multiLayerCoordinator?.coordinatorId;
+    final coordinatorId = _multiLayerCoordinator?.gameCoordinatorId;
     if (coordinatorId == null) return null;
 
     return _connectedNodes.firstWhere(
