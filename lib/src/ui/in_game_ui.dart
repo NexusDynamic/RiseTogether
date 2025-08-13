@@ -200,11 +200,15 @@ class InGameUI extends StatelessWidget
     required String side,
     required double screenHeight,
   }) {
+    // Get current player's team assignment from network coordinator
+    final currentPlayerTeamId = _getCurrentPlayerTeamId();
+    final currentPlayerTeam = Team.fromId(currentPlayerTeamId);
+    
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          side == 'left' ? Team.a.shortName : Team.b.shortName,
+          '${currentPlayerTeam.shortName} ${side.toUpperCase()}',
           style: const TextStyle(
             color: Color.fromARGB(150, 255, 255, 255),
             fontSize: 16,
@@ -214,17 +218,30 @@ class InGameUI extends StatelessWidget
         ),
         const SizedBox(height: 10),
         _buildActionButton(
-          teamId: side == 'left' ? Team.a.id : Team.b.id,
+          teamId: currentPlayerTeamId, // Always use player's assigned team
           playerId: 'currentPlayer',
           action: side == 'left' ? PaddleAction.left : PaddleAction.right,
           icon: CupertinoIcons.arrow_up_to_line,
-          color: side == 'left'
-              ? getTeamColorWithOpacity(Team.a, 0.8)
-              : getTeamColorWithOpacity(Team.b, 0.8),
+          color: getTeamColorWithOpacity(currentPlayerTeam, 0.8),
           size: 60,
         ),
       ],
     );
+  }
+
+  int _getCurrentPlayerTeamId() {
+    // Get current player's team from network coordinator
+    try {
+      final assignments = game.networkCoordinator?.playerAssignments ?? [];
+      final currentAssignment = assignments.firstWhere(
+        (assignment) => assignment.playerId == 'currentPlayer',
+        orElse: () => throw StateError('Current player assignment not found'),
+      );
+      return currentAssignment.teamId;
+    } catch (e) {
+      appLog.warning('Could not get current player team assignment: $e, defaulting to Team A');
+      return Team.a.id; // Default to team A if network coordinator unavailable
+    }
   }
 
   bool _isSimulatedMode() {

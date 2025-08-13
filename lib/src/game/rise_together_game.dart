@@ -7,9 +7,12 @@ import 'package:flame/events.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:logging/logging.dart' show Level;
+import 'package:rise_together/src/components/paddle.dart';
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/services/net/native/network_action_bridge.dart';
+import 'package:rise_together/src/services/net/native/native_bridge.dart';
 import 'package:rise_together/src/services/net/network_bridge.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/game/action_system.dart';
@@ -18,6 +21,7 @@ import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/game/distance_tracker.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/attributes/team_provider.dart';
+import 'package:rise_together/src/services/network_coordinator.dart';
 import 'rise_together_world.dart';
 
 /// A provider for tracking game time with countdown functionality.
@@ -78,14 +82,41 @@ class RiseTogetherGame extends Forge2DGame
   final DistanceTracker distanceTracker = DistanceTracker();
   final PlayerContext _playerContext = PlayerContext();
 
+  // Network coordinator passed from main app
+  NetworkCoordinator? _networkCoordinator;
+
+  NetworkCoordinator? get networkCoordinator => _networkCoordinator;
+  set networkCoordinator(NetworkCoordinator? coordinator) {
+    if (coordinator == _networkCoordinator) {
+      appLog.info(
+        'Attempted to set the same NetworkCoordinator instance, ignoring',
+      );
+      return;
+    }
+    if (_networkCoordinator != null) {
+      // Dispose existing coordinator if set
+      appLog.info(
+        'Disposing existing NetworkCoordinator before setting new one',
+      );
+      _networkCoordinator!.dispose();
+      _networkCoordinator = null;
+    }
+    _networkCoordinator = coordinator;
+    _initializeActionSystem();
+    appLog.info('NetworkCoordinator set: ${_networkCoordinator?.toString()}');
+  }
+
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
   final List<WorldController> worldControllers = [];
+  final List<Paddle> paddles = [];
 
   @override
   PlayerContext? get playerContext => _playerContext;
 
-  late final ActionStreamManager actionManager;
+  late ActionStreamManager _actionManager;
+  ActionStreamManager get actionManager => _actionManager;
+
   late final NetworkBridge networkBridge;
 
   final isGameOver = false;
@@ -155,6 +186,10 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   Future<void> _addPaddles() async {
+    if (paddles.isNotEmpty) {
+      appLog.warning('Paddles already added, skipping paddle creation');
+      return;
+    }
     for (int i = 0; i < cameras.length; i++) {
       final camera = cameras[i];
       final world = camera.world as RiseTogetherWorld;
@@ -165,6 +200,7 @@ class RiseTogetherGame extends Forge2DGame
 
       // wait for the paddle to be loaded
       await paddle.loaded;
+      paddles.add(paddle);
       appLog.fine('Adding paddle to camera: ${camera.hashCode}');
       camera.follow(paddle);
 
@@ -182,12 +218,28 @@ class RiseTogetherGame extends Forge2DGame
   Future<void> _initializeActionSystem() async {
     appLog.fine('Initializing action system');
 
-    // Create action stream manager
-    actionManager = ActionStreamManager();
+    // If using network and coordinator exists, reuse its action manager
+    if (!useLocalNetwork && networkCoordinator?.actionManager != null) {
+      // Reuse the action manager from network coordinator
+      _actionManager = networkCoordinator!.actionManager!;
+      appLog.info('Reusing action manager from network coordinator');
+    } else {
+      // Create new action stream manager for local mode
+      _actionManager = ActionStreamManager();
+      appLog.info('Created new action manager for local mode');
+    }
+
+    for (final worldController in worldControllers) {
+      appLog.fine(
+        'Disposing existing WorldController: ${worldController.hashCode} for team ${worldController.actionStream.teamId}',
+      );
+      worldController.actionStream.dispose();
+      worldController.dispose();
+    }
 
     // Create team streams and world controllers
     for (int teamId = 0; teamId < nTeams; teamId++) {
-      final teamStream = actionManager.createTeamStream(
+      final teamStream = _actionManager.createTeamStream(
         teamId,
         5,
       ); // max 5 players per team
@@ -195,24 +247,33 @@ class RiseTogetherGame extends Forge2DGame
         world: worlds[teamId],
         actionStream: teamStream,
       );
+      if (paddles.isNotEmpty) {
+        worldController.setPaddle(paddles[teamId]);
+      }
       worldControllers.add(worldController);
       worldController.initialize();
     }
 
-    // Initialize network bridge based on configuration
-    networkBridge = NetworkBridge(
-      actionManager,
-      useLocalNetwork: useLocalNetwork,
-    );
-    await networkBridge.initialize();
+    // Set up network bridge
+    if (networkCoordinator != null) {
+      networkBridge = getNetworkBridge(
+        _actionManager,
+        useLocalNetwork: useLocalNetwork,
+        networkCoordinator: networkCoordinator,
+      );
+      appLog.info(
+        'Created network bridge (${useLocalNetwork ? 'local' : 'network'} mode)',
+      );
+    }
 
     appLog.fine('Action system initialized');
   }
 
   @override
   Future<void> onLoad() async {
-    appLog.setMinLevel(Level.FINE);
+    appLog.setMinLevel(Level.ALL);
     appLog.fine('RiseTogetherGame onLoad called');
+    // Ensure game settings store is loaded
     await initSettings();
     appLog.fine('App settings initialized: $appSettings');
 
@@ -262,6 +323,35 @@ class RiseTogetherGame extends Forge2DGame
     _handleKeyboardActions(keysPressed);
 
     return KeyEventResult.handled;
+  }
+
+  /// Initialize network bridge for gameplay (called when game starts)
+  Future<void> initializeNetworkForGameplay() async {
+    // Always initialize the network bridge first
+    if (networkBridge is NetworkActionBridge) {
+      try {
+        await networkBridge.initialize();
+        appLog.fine('Network bridge initialized for gameplay');
+
+        final netBridge = networkBridge as NetworkActionBridge;
+        appLog.info('Network status: ${netBridge.getNetworkStatus()}');
+      } catch (e) {
+        appLog.severe('Failed to initialize network bridge: $e');
+        // Continue with local bridge
+      }
+    }
+
+    // Then activate network coordination if using network mode
+    if (!useLocalNetwork && networkCoordinator != null) {
+      try {
+        // Start the game phase - disable peer discovery
+        networkCoordinator!.startGame();
+        appLog.fine('Network coordinator game mode activated');
+      } catch (e) {
+        appLog.severe('Failed to activate network coordinator for game: $e');
+        // Fall back to local network if needed
+      }
+    }
   }
 
   void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
@@ -334,6 +424,11 @@ class RiseTogetherGame extends Forge2DGame
 
     // Complete the level in tournament manager
     tournamentManager.completeLevel();
+
+    // Stop game mode if using network coordination
+    if (!useLocalNetwork && networkCoordinator != null) {
+      networkCoordinator!.stopGame();
+    }
 
     // Remove in-game UI
     overlays.remove('inGameUI');
@@ -415,18 +510,20 @@ class RiseTogetherGame extends Forge2DGame
 
   /// Reinitialize network bridge when local-only mode setting changes
   Future<void> _reinitializeNetworkBridge() async {
-    appLog.info('Reinitializing network bridge with useLocalNetwork: $useLocalNetwork');
-    
+    appLog.info(
+      'Reinitializing network bridge with useLocalNetwork: $useLocalNetwork',
+    );
+
     // Dispose of the current network bridge
     networkBridge.dispose();
-    
+
     // Create a new network bridge with updated settings
     networkBridge = NetworkBridge(
-      actionManager,
+      _actionManager,
       useLocalNetwork: useLocalNetwork,
     );
     await networkBridge.initialize();
-    
+
     appLog.info('Network bridge reinitialized');
   }
 
@@ -446,8 +543,16 @@ class RiseTogetherGame extends Forge2DGame
     for (final controller in worldControllers) {
       controller.dispose();
     }
+
+    // Always dispose network bridge (it doesn't own the coordinator)
     networkBridge.dispose();
-    actionManager.dispose();
+
+    // Only dispose action manager if we created it (not reusing from coordinator)
+    if (useLocalNetwork ||
+        networkCoordinator?.actionManager != _actionManager) {
+      _actionManager.dispose();
+    }
+
     super.onRemove();
   }
 }
