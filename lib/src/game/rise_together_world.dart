@@ -70,12 +70,47 @@ class RiseTogetherWorld extends Forge2DWorld
       'Restarting level with horizontal width: ${level.horizontalWidth}.',
     );
 
-    // set ball and paddle to starting positions
+    // Reset ball and paddle to starting positions (world components - reused)
     ball.setPosition(Vector2(0.0, -1));
     ball.stopMovement();
     // @TODO: this should not be hardcoded, use conf or props
     paddle.setPosition(Vector2(0, -0.01 - 0.01 * level.horizontalWidth));
     paddle.setAngle(0);
+    
+    // Note: walls and obstacles stay the same for restart (level components)
+  }
+
+  /// Load a new level configuration
+  /// Ball and paddle (world components) are reused and repositioned
+  /// Walls and obstacles (level components) are recreated
+  Future<void> loadLevel(RiseTogetherLevel newLevel) async {
+    appLog.info('Loading new level: ${newLevel.runtimeType}');
+    
+    // Remove level components (walls, obstacles) - will be recreated
+    removeWhere((component) => component is Wall);
+    
+    // Reposition world components (ball, paddle) for new level
+    if (ball.isMounted) {
+      final newBallPos = Vector2(
+        0.0,
+        -0.01 - 0.02 * newLevel.horizontalWidth - 0.02 * newLevel.horizontalWidth,
+      );
+      ball.setPosition(newBallPos);
+      ball.stopMovement();
+    }
+    
+    if (paddle.isMounted) {
+      final newPaddlePos = Vector2(0, -0.01 - 0.01 * newLevel.horizontalWidth);
+      paddle.setPosition(newPaddlePos);
+      paddle.setAngle(0);
+    }
+    
+    // Create new level components (walls, obstacles)
+    final width = newLevel.horizontalWidth;
+    final height = newLevel.verticalMultiplier;
+    _addBoundaries(width, height);
+    
+    appLog.info('Level loaded: ${newLevel.runtimeType} - world components reused, level components recreated');
   }
 
   void _addBoundaries(double width, double height) {

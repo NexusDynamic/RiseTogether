@@ -12,6 +12,7 @@ import 'package:rise_together/src/ui/survey_ui.dart';
 import 'package:rise_together/src/ui/coordination_ui.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/services/network_coordinator.dart';
+import 'package:rise_together/src/game/action_provider.dart';
 
 class AnyInputScrollBehavior extends CupertinoScrollBehavior {
   // Override behavior methods and getters like dragDevices
@@ -36,6 +37,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
     with AppLogging, AppSettings {
   late final NetworkCoordinator networkCoordinator;
   late final RiseTogetherGame game;
+  ActionProvider? _actionProvider;
 
   @override
   void initState() {
@@ -44,7 +46,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
     initSettings().then((_) {
       networkCoordinator = NetworkCoordinator();
 
-      // Initialize coordination manager asynchronously without blocking UI
+      // Initialize coordination layer early (app level)
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _initializeCoordination();
       });
@@ -56,16 +58,45 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
       appLog.info('Starting coordination initialization...');
       await networkCoordinator.initialize();
       appLog.info('Coordination initialization completed successfully');
-      game.networkCoordinator = networkCoordinator;
+      
+      // Create action provider but don't configure game yet
+      // Game will be configured when user starts a game from menu
+      _actionProvider = NetworkActionProvider(networkCoordinator);
+      appLog.info('Action provider created and ready');
     } catch (error) {
       appLog.severe('Failed to initialize coordination: $error');
-      // Don't crash the app, just continue without network coordination
-      appLog.warning('Continuing without network coordination');
+      // Fall back to local action provider
+      _actionProvider = LocalActionProvider();
+      appLog.warning('Using local action provider as fallback');
+    }
+  }
+
+  /// Configure and start game (called from menu)
+  Future<void> configureAndStartGame() async {
+    if (_actionProvider == null) {
+      appLog.warning('Action provider not ready, using local provider');
+      _actionProvider = LocalActionProvider();
+    }
+
+    try {
+      await game.configure(_actionProvider!);
+      appLog.info('Game configured with action provider');
+      
+      // Only start if this node is the coordinator
+      if (_actionProvider!.isCoordinator) {
+        await game.startGame();
+        appLog.info('Game started by coordinator');
+      } else {
+        appLog.info('Waiting for coordinator to start game');
+      }
+    } catch (error) {
+      appLog.severe('Failed to configure game: $error');
     }
   }
 
   @override
   void dispose() {
+    _actionProvider?.dispose();
     networkCoordinator.dispose();
     super.dispose();
   }
@@ -84,7 +115,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
           InGameUI.overlayID: (context, game) =>
               InGameUI(game as RiseTogetherGame),
           MainMenuUI.overlayID: (context, game) =>
-              MainMenuUI(game as RiseTogetherGame, networkCoordinator),
+              MainMenuUI(game as RiseTogetherGame, networkCoordinator, configureAndStartGame),
           SettingsUI.overlayID: (context, game) =>
               SettingsUI(game as RiseTogetherGame),
           LevelTransitionUI.overlayID: (context, game) =>

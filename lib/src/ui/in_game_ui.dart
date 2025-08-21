@@ -230,13 +230,12 @@ class InGameUI extends StatelessWidget
   }
 
   int _getCurrentPlayerTeamId() {
-    // Get current player's team from network coordinator
+    // Get current player's team from action provider
     try {
-      final assignments = game.networkCoordinator?.playerAssignments ?? [];
-      final currentAssignment = assignments.firstWhere(
-        (assignment) => assignment.playerId == 'currentPlayer',
-        orElse: () => throw StateError('Current player assignment not found'),
-      );
+      final currentAssignment = game.currentPlayerAssignment;
+      if (currentAssignment == null) {
+        throw StateError('Current player assignment not found');
+      }
       return currentAssignment.teamId;
     } catch (e) {
       appLog.warning('Could not get current player team assignment: $e, defaulting to Team A');
@@ -457,6 +456,6 @@ class InGameUI extends StatelessWidget
     appLog.fine(
       'UI sending action: team=$teamId, player=$playerId, action=$action',
     );
-    game.networkBridge.sendAction(teamId, playerId, action);
+    game.sendAction(teamId, playerId, action);
   }
 }

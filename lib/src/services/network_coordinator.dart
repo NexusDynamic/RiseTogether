@@ -42,7 +42,8 @@ class PlayerAssignment {
 
 /// Modern network coordinator using MultiLayerCoordinator
 class NetworkCoordinator extends ChangeNotifier with AppLogging {
-  GamingCoordinationNode? _multiLayerCoordinator;
+  Map<String, dynamic>? _transportInfo;
+  SessionResult? _sessionResult;
   StreamSubscription? _eventSubscription;
   StreamSubscription? _gameDataSubscription;
 
@@ -69,6 +70,8 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
   List<NetworkNode> get connectedNodes => List.unmodifiable(_connectedNodes);
   List<PlayerAssignment> get playerAssignments =>
       _playerAssignments.values.toList();
+  PlayerAssignment? get currentPlayerAssignment =>
+      _deviceId != null ? _playerAssignments[_deviceId!] : null;
   GamingCoordinationNode? get coordinationNode => _multiLayerCoordinator;
   ActionStreamManager? get actionManager => _actionManager;
 
@@ -91,24 +94,29 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     try {
       _deviceId = RiseTogetherNetworkConfig.generateDeviceId();
       _deviceName = RiseTogetherNetworkConfig.generateDeviceName();
-
-      // Create multi-layer coordinator
-      _multiLayerCoordinator = GamingCoordinationNode(
+      _transportInfo = CoordinatorFactory.getTransportInfo();
+      _sessionResult = await CoordinatorFactory.createSession(
+        sessionId: 'rise_together_net',
         nodeId: _deviceId!,
         nodeName: _deviceName!,
-        coordinationStreamName: 'risetogether_coordination',
-        gameDataStreamName: 'risetogether_actions',
-        coordinationConfig:
-            RiseTogetherNetworkConfig.createCoordinationConfig(),
-        gameDataConfig: RiseTogetherNetworkConfig.createGameDataConfig(
-          targetFrequency: 250.0,
-          useBusyWait: true,
-        ),
+        topology: NetworkTopology.hierarchical,
+        sessionMetadata: {
+          'experiment_type': 'rise_together',
+          'version': '1.0.0',
+          'supports_cross_platform': true,
+        },
+        nodeMetadata: {
+          'device_type': 'participant',
+          'capabilities': ['coordination', 'data_streaming'],
+          'platform': _transportInfo!['name'],
+        },
+        heartbeatInterval: const Duration(seconds: 5),
+        transportConfig: {
+          'lsl': {'ipv6': false, 'logLevel': 2},
+        },
       );
 
-      // Initialize and join network
-      await _multiLayerCoordinator!.initialize();
-      await _multiLayerCoordinator!.join();
+      await _sessionResult!.session.join();
 
       _setupEventListeners();
       _setupGameDataLayer();

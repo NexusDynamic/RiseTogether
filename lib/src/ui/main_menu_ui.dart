@@ -13,8 +13,9 @@ class MainMenuUI extends StatelessWidget
   static final String overlayID = 'MainMenu';
   final RiseTogetherGame game;
   final NetworkCoordinator networkCoordinator;
+  final Future<void> Function() onStartGame;
 
-  MainMenuUI(this.game, this.networkCoordinator, {super.key});
+  MainMenuUI(this.game, this.networkCoordinator, this.onStartGame, {super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -287,25 +288,23 @@ class MainMenuUI extends StatelessWidget
 
 
   void _startGame() async {
-    appLog.info('Starting game - removing MainMenu overlay and resuming engine');
+    appLog.info('Starting game - configuring and starting with new architecture');
     
-    // Initialize network for gameplay only if using network mode
-    if (!game.useLocalNetwork) {
-      try {
-        await game.initializeNetworkForGameplay();
-      } catch (e) {
-        appLog.warning('Failed to initialize network for gameplay: $e');
-      }
+    try {
+      // Use the new lifecycle: configure and start game
+      await onStartGame();
+      
+      // Remove the main menu overlay
+      game.overlays.remove(MainMenuUI.overlayID);
+
+      // Add the in-game UI overlay
+      game.overlays.add(InGameUI.overlayID);
+      
+      appLog.info('Game started successfully');
+    } catch (e) {
+      appLog.severe('Failed to start game: $e');
+      // Could show error dialog here
     }
-    
-    // Remove the main menu overlay
-    game.overlays.remove(MainMenuUI.overlayID);
-
-    // Add the in-game UI overlay
-    game.overlays.add(InGameUI.overlayID);
-
-    // Resume the game engine
-    game.resumeEngine();
   }
 
   void _openCoordination() {
