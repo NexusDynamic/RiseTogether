@@ -7,17 +7,19 @@ import 'package:flame/events.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:logging/logging.dart' show Level;
+import 'package:rise_together/src/components/paddle.dart';
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
-import 'package:rise_together/src/services/net/network_bridge.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/game/world_controller.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/game/distance_tracker.dart';
+import 'package:rise_together/src/game/action_provider.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/attributes/team_provider.dart';
+import 'package:rise_together/src/services/network_coordinator.dart' show PlayerAssignment;
 import 'rise_together_world.dart';
 
 /// A provider for tracking game time with countdown functionality.
@@ -78,25 +80,78 @@ class RiseTogetherGame extends Forge2DGame
   final DistanceTracker distanceTracker = DistanceTracker();
   final PlayerContext _playerContext = PlayerContext();
 
+  // Action provider injected from app - abstracts networking
+  ActionProvider? _actionProvider;
+  bool get isConfigured => _actionProvider != null;
+
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
   final List<WorldController> worldControllers = [];
+  final List<Paddle> paddles = [];
 
   @override
   PlayerContext? get playerContext => _playerContext;
 
-  late final ActionStreamManager actionManager;
-  late final NetworkBridge networkBridge;
+  ActionStreamManager get actionManager => _actionProvider!.actionManager;
 
   final isGameOver = false;
 
   final RiseTogetherLevel level;
-  bool get useLocalNetwork => appSettings.getBool('game.local_only_mode');
 
   RiseTogetherGame({this.level = const Level1()})
     : super(gravity: Vector2.zero(), zoom: 10) {
     paused = true; // Start paused
   }
+
+  /// Configure the game with an action provider
+  /// This separates asset loading from networking configuration
+  Future<void> configure(ActionProvider actionProvider) async {
+    if (_actionProvider != null) {
+      _actionProvider!.dispose();
+    }
+    
+    _actionProvider = actionProvider;
+    await _actionProvider!.initialize();
+    await _initializeActionSystem();
+    
+    appLog.info('Game configured with action provider');
+  }
+
+  /// Start the game (can only be called by coordinator)
+  Future<void> startGame() async {
+    if (!isConfigured) {
+      throw StateError('Game must be configured before starting');
+    }
+    
+    await _actionProvider!.startGameplay();
+    resumeEngine();
+    appLog.info('Game started');
+  }
+
+  /// Stop the game (can only be called by coordinator)
+  void stopGame() {
+    if (!isConfigured) return;
+    
+    _actionProvider!.stopGameplay();
+    pauseEngine();
+    appLog.info('Game stopped');
+  }
+
+  /// Send action through the action provider
+  void sendAction(int teamId, String playerId, PaddleAction action) {
+    if (!isConfigured) {
+      appLog.warning('Attempted to send action but game not configured');
+      return;
+    }
+    _actionProvider!.networkBridge.sendAction(teamId, playerId, action);
+  }
+
+  /// Get whether this is the coordinator node
+  bool get isCoordinator => isConfigured ? _actionProvider!.isCoordinator : false;
+
+  /// Get current player's team assignment
+  PlayerAssignment? get currentPlayerAssignment => 
+      isConfigured ? _actionProvider!.currentPlayerAssignment : null;
 
   List<Forge2DWorld> _buildWorlds() {
     for (int i = 0; i < nTeams; i++) {
@@ -155,6 +210,10 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   Future<void> _addPaddles() async {
+    if (paddles.isNotEmpty) {
+      appLog.warning('Paddles already added, skipping paddle creation');
+      return;
+    }
     for (int i = 0; i < cameras.length; i++) {
       final camera = cameras[i];
       final world = camera.world as RiseTogetherWorld;
@@ -165,6 +224,7 @@ class RiseTogetherGame extends Forge2DGame
 
       // wait for the paddle to be loaded
       await paddle.loaded;
+      paddles.add(paddle);
       appLog.fine('Adding paddle to camera: ${camera.hashCode}');
       camera.follow(paddle);
 
@@ -174,18 +234,24 @@ class RiseTogetherGame extends Forge2DGame
       distanceTracker.setStartingHeight(team.id, ballStartHeight);
       appLog.info('${team.shortName} ball starting height: $ballStartHeight');
 
-      // Connect paddle to world controller
-      worldControllers[i].setPaddle(paddle);
+      // Note: World controllers will be connected during configuration
     }
   }
 
   Future<void> _initializeActionSystem() async {
     appLog.fine('Initializing action system');
 
-    // Create action stream manager
-    actionManager = ActionStreamManager();
+    // Clean up existing world controllers
+    for (final worldController in worldControllers) {
+      appLog.fine(
+        'Disposing existing WorldController: ${worldController.hashCode} for team ${worldController.actionStream.teamId}',
+      );
+      worldController.actionStream.dispose();
+      worldController.dispose();
+    }
+    worldControllers.clear();
 
-    // Create team streams and world controllers
+    // Create team streams and world controllers using injected action manager
     for (int teamId = 0; teamId < nTeams; teamId++) {
       final teamStream = actionManager.createTeamStream(
         teamId,
@@ -195,24 +261,25 @@ class RiseTogetherGame extends Forge2DGame
         world: worlds[teamId],
         actionStream: teamStream,
       );
+      
+      // Connect paddle if it exists
+      if (teamId < paddles.length) {
+        worldController.setPaddle(paddles[teamId]);
+        appLog.fine('Connected paddle ${teamId} to world controller');
+      }
+      
       worldControllers.add(worldController);
       worldController.initialize();
     }
 
-    // Initialize network bridge based on configuration
-    networkBridge = NetworkBridge(
-      actionManager,
-      useLocalNetwork: useLocalNetwork,
-    );
-    await networkBridge.initialize();
-
-    appLog.fine('Action system initialized');
+    appLog.fine('Action system initialized with ${worldControllers.length} world controllers');
   }
 
   @override
   Future<void> onLoad() async {
-    appLog.setMinLevel(Level.FINE);
+    appLog.setMinLevel(Level.ALL);
     appLog.fine('RiseTogetherGame onLoad called');
+    // Ensure game settings store is loaded
     await initSettings();
     appLog.fine('App settings initialized: $appSettings');
 
@@ -237,15 +304,11 @@ class RiseTogetherGame extends Forge2DGame
     await Flame.images.load('ball.png');
 
     _buildCameras(_buildWorlds());
-
-    // Initialize action system before adding paddles
-    await _initializeActionSystem();
-
     addAll(worlds);
     addAll(cameras);
     await _addPaddles();
 
-    appLog.fine('Game loaded, ready for MainMenu');
+    appLog.fine('Game assets loaded, ready for configuration');
   }
 
   @override
@@ -254,15 +317,16 @@ class RiseTogetherGame extends Forge2DGame
     Set<LogicalKeyboardKey> keysPressed,
   ) {
     super.onKeyEvent(event, keysPressed);
-    if (!isLoaded) {
+    if (!isLoaded || !isConfigured) {
       return KeyEventResult.ignored;
     }
 
-    // Handle keyboard input through new action system
+    // Handle keyboard input through action provider
     _handleKeyboardActions(keysPressed);
 
     return KeyEventResult.handled;
   }
+
 
   void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
     // Team A keyboard controls (left side)
@@ -276,7 +340,7 @@ class RiseTogetherGame extends Forge2DGame
       actionA = PaddleAction.right;
     }
 
-    networkBridge.sendAction(teamA.id, playerA.id, actionA);
+    _actionProvider!.networkBridge.sendAction(teamA.id, playerA.id, actionA);
 
     // Team B keyboard controls (right side)
     final teamB = Team.b;
@@ -289,7 +353,7 @@ class RiseTogetherGame extends Forge2DGame
       actionB = PaddleAction.right;
     }
 
-    networkBridge.sendAction(teamB.id, playerB.id, actionB);
+    _actionProvider!.networkBridge.sendAction(teamB.id, playerB.id, actionB);
   }
 
   @override
@@ -334,6 +398,11 @@ class RiseTogetherGame extends Forge2DGame
 
     // Complete the level in tournament manager
     tournamentManager.completeLevel();
+
+    // Stop game via action provider (coordinator will handle coordination)
+    if (isConfigured) {
+      _actionProvider!.stopGameplay();
+    }
 
     // Remove in-game UI
     overlays.remove('inGameUI');
@@ -407,27 +476,7 @@ class RiseTogetherGame extends Forge2DGame
     );
     distanceTracker.initialize(distanceMultiplier);
 
-    // Reinitialize network bridge if local-only mode setting changed
-    await _reinitializeNetworkBridge();
-
     appLog.info('Settings reloaded successfully');
-  }
-
-  /// Reinitialize network bridge when local-only mode setting changes
-  Future<void> _reinitializeNetworkBridge() async {
-    appLog.info('Reinitializing network bridge with useLocalNetwork: $useLocalNetwork');
-    
-    // Dispose of the current network bridge
-    networkBridge.dispose();
-    
-    // Create a new network bridge with updated settings
-    networkBridge = NetworkBridge(
-      actionManager,
-      useLocalNetwork: useLocalNetwork,
-    );
-    await networkBridge.initialize();
-    
-    appLog.info('Network bridge reinitialized');
   }
 
   /// Public method to reset and restart the game
@@ -446,8 +495,12 @@ class RiseTogetherGame extends Forge2DGame
     for (final controller in worldControllers) {
       controller.dispose();
     }
-    networkBridge.dispose();
-    actionManager.dispose();
+
+    // Dispose action provider if configured
+    if (isConfigured) {
+      _actionProvider!.dispose();
+    }
+
     super.onRemove();
   }
 }
