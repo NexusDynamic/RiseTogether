@@ -54,16 +54,53 @@ class LogService {
 
   bool _isFileLoggingEnabled = false;
   String? _logFilePath;
-  Level _minLevel = Level.ALL;
+  Level _minLevel = Level.INFO;
 
   static const int _bufferSize = 100;
   static const Duration _flushInterval = Duration(seconds: 1);
+
+  static bool useColors = true;
+  // static bool get useColors => _useColors;
+  // static set useColors(bool value) {
+  //   _useColors = value;
+  // }
 
   factory LogService() => _instance;
 
   LogService._internal() {
     _initializeLogger();
     _setupPeriodicFlush();
+  }
+
+  static String wrapMessageColor(String message, Level level) {
+    if (!useColors) return message;
+    // ANSI color codes
+    const reset = '\x1B[0m';
+    const red = '\x1B[31m';
+    const green = '\x1B[32m';
+    const yellow = '\x1B[33m';
+    const blue = '\x1B[34m';
+    const magenta = '\x1B[35m';
+    const cyan = '\x1B[36m';
+
+    String color;
+    if (level >= Level.SEVERE) {
+      color = red;
+    } else if (level >= Level.WARNING) {
+      color = yellow;
+    } else if (level >= Level.INFO) {
+      color = green;
+    } else if (level >= Level.CONFIG) {
+      color = cyan;
+    } else if (level >= Level.FINE) {
+      color = blue;
+    } else if (level >= Level.FINER) {
+      color = magenta;
+    } else {
+      color = reset; // Default terminal color
+    }
+
+    return '$color$message$reset';
   }
 
   void _initializeLogger() {
@@ -94,7 +131,7 @@ class LogService {
     _controller.add(entry);
 
     if (kDebugMode) {
-      debugPrint(entry.format());
+      debugPrint(wrapMessageColor(entry.format(), entry.level));
     }
 
     if (_buffer.length >= _bufferSize) {

@@ -110,8 +110,13 @@ class InGameUI extends StatelessWidget
               value: game.distanceTracker,
               builder: (ctx, _) {
                 final distanceTracker = Provider.of<DistanceTracker>(ctx);
+                final leftTeamId = game.getActualTeamId(0);
+                final rightTeamId = game.getActualTeamId(1);
+                final leftDistance = distanceTracker.getFormattedDistance(leftTeamId);
+                final rightDistance = distanceTracker.getFormattedDistance(rightTeamId);
+                
                 return Text(
-                  'Team 1: ${distanceTracker.getFormattedDistance(0)} | Team 2: ${distanceTracker.getFormattedDistance(1)}',
+                  'My Team: $leftDistance | Opponent: $rightDistance',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     backgroundColor: Color.fromARGB(150, 0, 0, 0),
@@ -154,9 +159,9 @@ class InGameUI extends StatelessWidget
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildProgressIndicator(context, Team.a.id, screenHeight),
+                _buildProgressIndicator(context, game.getActualTeamId(0), screenHeight),
                 SizedBox(width: 20),
-                _buildProgressIndicator(context, Team.b.id, screenHeight),
+                _buildProgressIndicator(context, game.getActualTeamId(1), screenHeight),
               ],
             ),
           ),
@@ -208,7 +213,7 @@ class InGameUI extends StatelessWidget
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '${currentPlayerTeam.shortName} ${side.toUpperCase()}',
+          'My Team ${side.toUpperCase()}',
           style: const TextStyle(
             color: Color.fromARGB(150, 255, 255, 255),
             fontSize: 16,
@@ -236,6 +241,7 @@ class InGameUI extends StatelessWidget
       if (currentAssignment == null) {
         throw StateError('Current player assignment not found');
       }
+      appLog.info('UI: Current player assignment - Team: ${currentAssignment.teamId}, Player: ${currentAssignment.playerId}, Node: ${currentAssignment.nodeId}');
       return currentAssignment.teamId;
     } catch (e) {
       appLog.warning('Could not get current player team assignment: $e, defaulting to Team A');
@@ -267,22 +273,26 @@ class InGameUI extends StatelessWidget
     double screenWidth,
     double screenHeight,
   ) {
+    // Get the actual teams for left and right display positions
+    final leftTeamId = game.getActualTeamId(0);
+    final rightTeamId = game.getActualTeamId(1);
+    
     return [
-      // Left team controls (Team A)
+      // Left team controls (Player's team)
       Positioned(
         left: 20,
         bottom: 50,
         child: _buildSimulatedTeamControls(
-          team: Team.a,
+          team: Team.fromId(leftTeamId),
           screenHeight: screenHeight,
         ),
       ),
-      // Right team controls (Team B)
+      // Right team controls (Opponent's team)
       Positioned(
         right: 20,
         bottom: 50,
         child: _buildSimulatedTeamControls(
-          team: Team.b,
+          team: Team.fromId(rightTeamId),
           screenHeight: screenHeight,
         ),
       ),
@@ -293,11 +303,16 @@ class InGameUI extends StatelessWidget
     required Team team,
     required double screenHeight,
   }) {
+    // Determine if this is the player's team or opponent
+    final playerAssignment = game.currentPlayerAssignment;
+    final isMyTeam = playerAssignment?.teamId == team.id;
+    final teamLabel = isMyTeam ? 'My Team' : 'Opponent';
+    
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          team.shortName,
+          teamLabel,
           style: const TextStyle(
             color: Color.fromARGB(200, 255, 255, 255),
             fontSize: 16,
@@ -453,7 +468,7 @@ class InGameUI extends StatelessWidget
   }
 
   void _sendAction(int teamId, String playerId, PaddleAction action) {
-    appLog.fine(
+    appLog.info(
       'UI sending action: team=$teamId, player=$playerId, action=$action',
     );
     game.sendAction(teamId, playerId, action);

@@ -170,7 +170,7 @@ class CoordinationUI extends StatelessWidget
       itemBuilder: (context, index) {
         final node = coordinator.connectedNodes[index];
         final assignment = coordinator.playerAssignments
-            .where((a) => a.nodeId == node.nodeId)
+            .where((a) => a.nodeId == node.uId)
             .firstOrNull;
         
         return Container(
@@ -180,7 +180,7 @@ class CoordinationUI extends StatelessWidget
             color: Color.fromARGB(100, 50, 50, 50),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: node.nodeId == coordinator.deviceId
+              color: node.uId == coordinator.deviceId
                 ? Color.fromARGB(255, 0, 255, 0)
                 : Color.fromARGB(50, 255, 255, 255),
               width: 1,
@@ -193,7 +193,7 @@ class CoordinationUI extends StatelessWidget
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      node.nodeName,
+                      node.name,
                       style: TextStyle(
                         color: Color.fromARGB(255, 255, 255, 255),
                         fontSize: 16,
@@ -202,7 +202,7 @@ class CoordinationUI extends StatelessWidget
                     ),
                     SizedBox(height: 5),
                     Text(
-                      'ID: ${node.nodeId.substring(0, 12)}...',
+                      'ID: ${node.uId.substring(0, 12)}...',
                       style: TextStyle(
                         color: Color.fromARGB(150, 255, 255, 255),
                         fontSize: 12,
@@ -224,15 +224,15 @@ class CoordinationUI extends StatelessWidget
                   ],
                 ),
               ),
-              if (node.nodeId == coordinator.deviceId)
+              if (node.uId == coordinator.deviceId)
                 Icon(
                   CupertinoIcons.checkmark_circle_fill,
                   color: Color.fromARGB(255, 0, 255, 0),
                   size: 24,
                 ),
-              if (coordinator.isCoordinator && node.nodeId != coordinator.deviceId) ...[
+              if (coordinator.isCoordinator && node.uId != coordinator.deviceId) ...[
                 SizedBox(width: 10),
-                _buildTeamAssignmentButtons(coordinator, node.nodeId),
+                _buildTeamAssignmentButtons(coordinator, node.uId),
               ],
             ],
           ),
@@ -304,6 +304,10 @@ class CoordinationUI extends StatelessWidget
               fontSize: 14,
             ),
           ),
+          SizedBox(height: 15),
+          
+          // Configuration status
+          _buildConfigurationStatus(coordinator),
         ],
       ),
     );
@@ -353,6 +357,51 @@ class CoordinationUI extends StatelessWidget
           color: Color.fromARGB(255, 255, 255, 255),
           size: 20,
         ),
+      ),
+    );
+  }
+
+  Widget _buildConfigurationStatus(NetworkCoordinator coordinator) {
+    return Container(
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Color.fromARGB(80, 0, 150, 255),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Experiment Configuration',
+            style: TextStyle(
+              color: Color.fromARGB(255, 255, 255, 255),
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 8),
+          
+          Text(
+            coordinator.gameConfiguration != null
+              ? '✅ Configuration loaded and will sync to participants'
+              : '⚙️ Using default configuration',
+            style: TextStyle(
+              color: Color.fromARGB(200, 255, 255, 255),
+              fontSize: 12,
+            ),
+          ),
+          
+          if (coordinator.gameConfiguration != null) ...[
+            SizedBox(height: 5),
+            Text(
+              'Teams: ${coordinator.playerAssignments.length} assigned',
+              style: TextStyle(
+                color: Color.fromARGB(200, 255, 255, 255),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

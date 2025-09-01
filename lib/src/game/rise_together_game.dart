@@ -19,7 +19,8 @@ import 'package:rise_together/src/game/distance_tracker.dart';
 import 'package:rise_together/src/game/action_provider.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/attributes/team_provider.dart';
-import 'package:rise_together/src/services/network_coordinator.dart' show PlayerAssignment;
+import 'package:rise_together/src/services/network_coordinator.dart'
+    show PlayerAssignment, NetworkCoordinator;
 import 'rise_together_world.dart';
 
 /// A provider for tracking game time with countdown functionality.
@@ -109,11 +110,18 @@ class RiseTogetherGame extends Forge2DGame
     if (_actionProvider != null) {
       _actionProvider!.dispose();
     }
-    
+
     _actionProvider = actionProvider;
     await _actionProvider!.initialize();
     await _initializeActionSystem();
-    
+
+    // Load game configuration from network coordinator if available
+    if (actionProvider is NetworkActionProvider) {
+      _loadNetworkConfiguration(actionProvider.networkCoordinator);
+    } else {
+      appLog.info('Using local configuration for local action provider');
+    }
+
     appLog.info('Game configured with action provider');
   }
 
@@ -122,17 +130,17 @@ class RiseTogetherGame extends Forge2DGame
     if (!isConfigured) {
       throw StateError('Game must be configured before starting');
     }
-    
+
     await _actionProvider!.startGameplay();
     resumeEngine();
     appLog.info('Game started');
   }
 
   /// Stop the game (can only be called by coordinator)
-  void stopGame() {
+  Future<void> stopGame() async {
     if (!isConfigured) return;
-    
-    _actionProvider!.stopGameplay();
+
+    await _actionProvider!.stopGameplay();
     pauseEngine();
     appLog.info('Game stopped');
   }
@@ -147,11 +155,48 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   /// Get whether this is the coordinator node
-  bool get isCoordinator => isConfigured ? _actionProvider!.isCoordinator : false;
+  bool get isCoordinator =>
+      isConfigured ? _actionProvider!.isCoordinator : false;
 
   /// Get current player's team assignment
-  PlayerAssignment? get currentPlayerAssignment => 
+  PlayerAssignment? get currentPlayerAssignment =>
       isConfigured ? _actionProvider!.currentPlayerAssignment : null;
+
+  /// Get team mapping where player's team is always on the left (index 0)
+  /// Returns a map: displayIndex -> actualTeamId
+  Map<int, int> get teamDisplayMapping {
+    final playerAssignment = currentPlayerAssignment;
+    if (playerAssignment == null) {
+      // Default mapping when no assignment is available
+      return {0: 0, 1: 1};
+    }
+
+    final playerTeamId = playerAssignment.teamId;
+    final opponentTeamId = playerTeamId == 0 ? 1 : 0;
+
+    // Player's team is always shown on left (display index 0)
+    // Opponent's team is always shown on right (display index 1)
+    return {
+      0: playerTeamId, // Left display = player's actual team
+      1: opponentTeamId, // Right display = opponent's actual team
+    };
+  }
+
+  /// Get the actual team ID for a display position (0=left, 1=right)
+  int getActualTeamId(int displayIndex) {
+    return teamDisplayMapping[displayIndex] ?? displayIndex;
+  }
+
+  /// Get the display index for an actual team ID
+  int getDisplayIndex(int actualTeamId) {
+    final mapping = teamDisplayMapping;
+    for (final entry in mapping.entries) {
+      if (entry.value == actualTeamId) {
+        return entry.key;
+      }
+    }
+    return actualTeamId; // Fallback
+  }
 
   List<Forge2DWorld> _buildWorlds() {
     for (int i = 0; i < nTeams; i++) {
@@ -230,9 +275,12 @@ class RiseTogetherGame extends Forge2DGame
 
       // Set starting height for distance tracking
       final ballStartHeight = ball.body.position.y;
-      final team = Team.fromId(i);
-      distanceTracker.setStartingHeight(team.id, ballStartHeight);
-      appLog.info('${team.shortName} ball starting height: $ballStartHeight');
+      final actualTeamId = getActualTeamId(i);
+      final team = Team.fromId(actualTeamId);
+      distanceTracker.setStartingHeight(actualTeamId, ballStartHeight);
+      appLog.info(
+        'Display position $i (${team.shortName}) ball starting height: $ballStartHeight',
+      );
 
       // Note: World controllers will be connected during configuration
     }
@@ -252,47 +300,52 @@ class RiseTogetherGame extends Forge2DGame
     worldControllers.clear();
 
     // Create team streams and world controllers using injected action manager
-    for (int teamId = 0; teamId < nTeams; teamId++) {
+    // Use display-based indexing (0=left/player, 1=right/opponent)
+    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
+      final actualTeamId = getActualTeamId(displayIndex);
       final teamStream = actionManager.createTeamStream(
-        teamId,
+        actualTeamId,
         5,
       ); // max 5 players per team
       final worldController = WorldController(
-        world: worlds[teamId],
+        world: worlds[displayIndex],
         actionStream: teamStream,
       );
-      
+
       // Connect paddle if it exists
-      if (teamId < paddles.length) {
-        worldController.setPaddle(paddles[teamId]);
-        appLog.fine('Connected paddle ${teamId} to world controller');
+      if (displayIndex < paddles.length) {
+        worldController.setPaddle(paddles[displayIndex]);
+        appLog.fine(
+          'Connected paddle at display position $displayIndex (actual team $actualTeamId) to world controller',
+        );
       }
-      
+
       worldControllers.add(worldController);
       worldController.initialize();
     }
 
-    appLog.fine('Action system initialized with ${worldControllers.length} world controllers');
+    appLog.fine(
+      'Action system initialized with ${worldControllers.length} world controllers',
+    );
   }
 
   @override
   Future<void> onLoad() async {
-    appLog.setMinLevel(Level.ALL);
+    appLog.setMinLevel(Level.INFO);
     appLog.fine('RiseTogetherGame onLoad called');
     // Ensure game settings store is loaded
     await initSettings();
     appLog.fine('App settings initialized: $appSettings');
 
-    // Initialize timer with level duration from settings
+    // Note: Game-specific configuration will be loaded during configure()
+    // Initialize with default values for now
     final levelDuration = appSettings.getDouble('game.level_duration');
     timeProvider.initialize(levelDuration);
 
-    // Initialize tournament settings
     final tournamentRounds = appSettings.getInt('game.tournament_rounds');
     final levelsPerRound = appSettings.getInt('game.levels_per_round');
     tournamentManager.initialize(tournamentRounds, levelsPerRound);
 
-    // Initialize distance tracking
     final distanceMultiplier = appSettings.getDouble(
       'game.distance_multiplier',
     );
@@ -321,39 +374,73 @@ class RiseTogetherGame extends Forge2DGame
       return KeyEventResult.ignored;
     }
 
-    // Handle keyboard input through action provider
-    _handleKeyboardActions(keysPressed);
+    // Only handle keyboard input in local mode or debug mode
+    if (_shouldEnableKeyboardInput()) {
+      _handleKeyboardActions(keysPressed);
+      return KeyEventResult.handled;
+    }
 
-    return KeyEventResult.handled;
+    return KeyEventResult.ignored;
   }
 
+  /// Check if keyboard input should be enabled
+  bool _shouldEnableKeyboardInput() {
+    // Always allow in local mode (no networking)
+    if (_actionProvider is LocalActionProvider) {
+      return true;
+    }
+
+    // Allow in debug mode
+    try {
+      if (appSettings.getBool('game.debug_mode')) {
+        return true;
+      }
+    } catch (e) {
+      appLog.warning('Could not access debug_mode setting: $e');
+    }
+
+    return false;
+  }
 
   void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
-    // Team A keyboard controls (left side)
-    final teamA = Team.a;
-    final playerA = PlayerId.fromTeamAndId(teamA, 'keyboard_player_a');
-    PaddleAction actionA = PaddleAction.none;
+    // Left side keyboard controls (player's team - display index 0)
+    final leftTeamId = getActualTeamId(0);
+    final leftTeam = Team.fromId(leftTeamId);
+    final playerLeft = PlayerId.fromTeamAndId(leftTeam, 'keyboard_player_left');
+    PaddleAction actionLeft = PaddleAction.none;
 
     if (keysPressed.contains(LogicalKeyboardKey.keyA)) {
-      actionA = PaddleAction.left;
+      actionLeft = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.keyD)) {
-      actionA = PaddleAction.right;
+      actionLeft = PaddleAction.right;
     }
 
-    _actionProvider!.networkBridge.sendAction(teamA.id, playerA.id, actionA);
+    _actionProvider!.networkBridge.sendAction(
+      leftTeamId,
+      playerLeft.id,
+      actionLeft,
+    );
 
-    // Team B keyboard controls (right side)
-    final teamB = Team.b;
-    final playerB = PlayerId.fromTeamAndId(teamB, 'keyboard_player_b');
-    PaddleAction actionB = PaddleAction.none;
+    // Right side keyboard controls (opponent's team - display index 1)
+    final rightTeamId = getActualTeamId(1);
+    final rightTeam = Team.fromId(rightTeamId);
+    final playerRight = PlayerId.fromTeamAndId(
+      rightTeam,
+      'keyboard_player_right',
+    );
+    PaddleAction actionRight = PaddleAction.none;
 
     if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
-      actionB = PaddleAction.left;
+      actionRight = PaddleAction.left;
     } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
-      actionB = PaddleAction.right;
+      actionRight = PaddleAction.right;
     }
 
-    _actionProvider!.networkBridge.sendAction(teamB.id, playerB.id, actionB);
+    _actionProvider!.networkBridge.sendAction(
+      rightTeamId,
+      playerRight.id,
+      actionRight,
+    );
   }
 
   @override
@@ -365,22 +452,23 @@ class RiseTogetherGame extends Forge2DGame
     timeProvider.updateTime(dt);
 
     // Update distance tracking for each team
-    for (int teamId = 0; teamId < nTeams; teamId++) {
-      if (teamId < worlds.length) {
-        final world = worlds[teamId];
-        // final team = Team.fromId(teamId);
+    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
+      if (displayIndex < worlds.length) {
+        final world = worlds[displayIndex];
+        final actualTeamId = getActualTeamId(displayIndex);
         if (world.ball.isMounted) {
           final ballHeight = world.ball.position.y;
-          distanceTracker.updateBallPosition(teamId, ballHeight);
+          distanceTracker.updateBallPosition(actualTeamId, ballHeight);
 
           // Update tournament manager with current distances
-          final distance = distanceTracker.getTeamDistance(teamId);
-          tournamentManager.updateTeamDistance(teamId, distance);
+          final distance = distanceTracker.getTeamDistance(actualTeamId);
+          tournamentManager.updateTeamDistance(actualTeamId, distance);
 
           // Debug logging (remove after testing)
+          // final team = Team.fromId(actualTeamId);
           // if (distance > 0.1) {
           //   appLog.info(
-          //     '${team.shortName} - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
+          //     'Display $displayIndex (${team.shortName}) - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
           //   );
           // }
         }
@@ -401,6 +489,7 @@ class RiseTogetherGame extends Forge2DGame
 
     // Stop game via action provider (coordinator will handle coordination)
     if (isConfigured) {
+      // Fire and forget - level complete should be synchronous but start the async stop
       _actionProvider!.stopGameplay();
     }
 
@@ -455,6 +544,46 @@ class RiseTogetherGame extends Forge2DGame
     pauseEngine();
 
     appLog.info('Game state reset complete');
+  }
+
+  /// Load configuration from network coordinator (for participants)
+  void _loadNetworkConfiguration(NetworkCoordinator networkCoordinator) {
+    appLog.info('Loading game configuration from network coordinator');
+
+    final config = networkCoordinator.getEffectiveGameConfiguration();
+    appLog.info('Received configuration keys: ${config.keys.toList()}');
+
+    // Load game-specific settings from network configuration
+    if (config.containsKey('game')) {
+      final gameConfig = config['game'] as Map<String, dynamic>;
+
+      if (gameConfig.containsKey('level_duration')) {
+        final levelDuration = (gameConfig['level_duration'] as num).toDouble();
+        timeProvider.initialize(levelDuration);
+        appLog.info('Set level duration from network: ${levelDuration}s');
+      }
+
+      if (gameConfig.containsKey('tournament_rounds') &&
+          gameConfig.containsKey('levels_per_round')) {
+        final tournamentRounds = gameConfig['tournament_rounds'] as int;
+        final levelsPerRound = gameConfig['levels_per_round'] as int;
+        tournamentManager.initialize(tournamentRounds, levelsPerRound);
+        appLog.info(
+          'Set tournament settings from network: $tournamentRounds rounds, $levelsPerRound levels per round',
+        );
+      }
+
+      if (gameConfig.containsKey('distance_multiplier')) {
+        final distanceMultiplier = (gameConfig['distance_multiplier'] as num)
+            .toDouble();
+        distanceTracker.initialize(distanceMultiplier);
+        appLog.info(
+          'Set distance multiplier from network: $distanceMultiplier',
+        );
+      }
+    }
+
+    appLog.info('Network configuration loaded successfully');
   }
 
   /// Reload settings from storage and update components

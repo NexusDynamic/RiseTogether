@@ -77,6 +77,8 @@ mixin class AppSettings {
             /// Human-readable device name for network coordination
             StringSetting(key: 'device_name', defaultValue: ''),
 
+            StringSetting(key: 'device_uid', defaultValue: ''),
+
             /// Whether to use local network mode (true) or network coordination (false)
             BoolSetting(key: 'use_local_network', defaultValue: false),
 

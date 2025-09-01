@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:liblsl/lsl.dart';
 import 'package:liblsl_coordinator/liblsl_coordinator.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -8,6 +7,7 @@ import 'package:rise_together/src/services/log_service.dart';
 class RiseTogetherNetworkConfig with AppSettings, AppLogging {
   static String? _cachedDeviceId;
   static String? _cachedDeviceName;
+  static String? _cachedDeviceUId;
   static RiseTogetherNetworkConfig? _instance;
 
   // Singleton pattern to access settings
@@ -103,92 +103,44 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
     return _cachedDeviceName!;
   }
 
-  /// Create optimized coordination config for RiseTogether
-  static CoordinationConfig createCoordinationConfig() {
-    return CoordinationConfig(
-      discoveryInterval: 1.0,
-      heartbeatInterval: 1.0,
-      nodeTimeout: 5.0,
-      joinTimeout: 5.0,
-      maxNodes: 20, // Support up to 20 devices
-      autoPromote: true,
-      receiveOwnMessages: true, // Enable coordinator participation in game
-      capabilities: {
-        'game': 'rise_together',
-        'version': '0.4.0',
-        'supports_high_frequency': true,
-        'platform': Platform.operatingSystem,
-        'hostname': Platform.localHostname,
-      },
-    );
-  }
-
-  /// Create high-frequency config optimized for paddle actions
-  static HighFrequencyConfig createGameDataConfig({
-    double? targetFrequency,
-    bool? useBusyWait,
-  }) {
-    return HighFrequencyConfig(
-      targetFrequency:
-          targetFrequency ?? 500.0, // 500Hz for responsive gameplay
-      useBusyWait: useBusyWait ?? true,
-      channelFormat: LSLChannelFormat.int32,
-      channelCount: 3, // [teamId, actionIndex, playerIdHash]
-      bufferSize: 1000,
-      useIsolate: true,
-      useIsolateInlet: false,
-      useIsolateOutlet: false,
-    );
-  }
-
-  /// Configuration presets for different scenarios
-  static HighFrequencyConfig createPerformancePreset(PerformancePreset preset) {
-    switch (preset) {
-      case PerformancePreset.maxPerformance:
-        return HighFrequencyConfig(
-          targetFrequency: 1000.0,
-          useBusyWait: true,
-          channelFormat: LSLChannelFormat.int32,
-          channelCount: 3,
-          bufferSize: 2000,
-          useIsolate: true,
-          useIsolateInlet: false,
-          useIsolateOutlet: false,
-        );
-      case PerformancePreset.balanced:
-        return HighFrequencyConfig(
-          targetFrequency: 500.0,
-          useBusyWait: true,
-          channelFormat: LSLChannelFormat.int32,
-          channelCount: 3,
-          bufferSize: 1000,
-          useIsolate: true,
-          useIsolateInlet: false,
-          useIsolateOutlet: false,
-        );
-      case PerformancePreset.lowCPU:
-        return HighFrequencyConfig(
-          targetFrequency: 250.0,
-          useBusyWait: false,
-          channelFormat: LSLChannelFormat.int32,
-          channelCount: 3,
-          bufferSize: 500,
-          useIsolate: true,
-          useIsolateInlet: false,
-          useIsolateOutlet: false,
-        );
+  static String generateDeviceUId() {
+    if (_cachedDeviceUId != null) {
+      return _cachedDeviceUId!;
     }
+
+    // Try to get from app settings first
+    try {
+      final savedDeviceUId = _config.appSettings.getString(
+        'network.device_uid',
+      );
+      if (savedDeviceUId.isNotEmpty) {
+        _cachedDeviceUId = savedDeviceUId;
+        return _cachedDeviceUId!;
+      }
+    } catch (e) {
+      // Settings not available yet, continue with generation
+    }
+
+    // Generate new device UId
+    _cachedDeviceUId = generateUid();
+
+    // Save to settings for persistence
+    try {
+      _config.appSettings.setString('network.device_uid', _cachedDeviceUId!);
+    } catch (e) {
+      // Settings not available, will save later
+    }
+
+    return _cachedDeviceUId!;
   }
-}
 
-/// Performance presets for different use cases
-enum PerformancePreset {
-  /// Maximum performance - 1000Hz, high CPU usage
-  maxPerformance,
-
-  /// Balanced - 500Hz, moderate CPU usage (recommended)
-  balanced,
-
-  /// Low CPU - 250Hz, minimal CPU usage
-  lowCPU,
+  /// Get platform information for metadata
+  static Map<String, dynamic> getPlatformInfo() {
+    return {
+      'platform': Platform.operatingSystem,
+      'hostname': Platform.localHostname,
+      'game': 'rise_together',
+      'version': '1.0.0',
+    };
+  }
 }

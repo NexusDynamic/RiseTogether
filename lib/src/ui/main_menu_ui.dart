@@ -1,7 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'package:rise_together/src/ui/overlay.dart';
-import 'package:rise_together/src/ui/in_game_ui.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -69,12 +68,27 @@ class MainMenuUI extends StatelessWidget
             ),
           ),
 
-          // Start game button
+          // Start game button (coordinator only) or waiting status
           Positioned(
             top: screenHeight * 0.45,
             left: screenWidth * 0.25,
             right: screenWidth * 0.25,
-            child: _buildStartButton(context),
+            child: ChangeNotifierProvider.value(
+              value: networkCoordinator,
+              child: Consumer<NetworkCoordinator>(
+                builder: (context, coordinator, child) {
+                  if (coordinator.isCoordinator) {
+                    if (coordinator.gameStarting) {
+                      return _buildCoordinatorWaitingWidget(context, coordinator);
+                    } else {
+                      return _buildStartButton(context);
+                    }
+                  } else {
+                    return _buildWaitingForCoordinatorWidget(context);
+                  }
+                },
+              ),
+            ),
           ),
 
           // Reset game button
@@ -143,6 +157,119 @@ class MainMenuUI extends StatelessWidget
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCoordinatorWaitingWidget(BuildContext context, NetworkCoordinator coordinator) {
+    String statusText;
+    Color backgroundColor;
+    Color textColor;
+    
+    if (coordinator.scheduledStartTime != null) {
+      final remainingSeconds = coordinator.scheduledStartTime!
+          .difference(DateTime.now())
+          .inSeconds;
+      if (remainingSeconds > 0) {
+        statusText = 'Game Starting in ${remainingSeconds}s';
+        backgroundColor = Color.fromARGB(255, 255, 165, 0);
+        textColor = Color.fromARGB(255, 255, 255, 255);
+      } else {
+        statusText = 'Game Starting Now!';
+        backgroundColor = Color.fromARGB(255, 0, 255, 0);
+        textColor = Color.fromARGB(255, 0, 0, 0);
+      }
+    } else {
+      final readyCount = coordinator.readyNodes.length;
+      final totalCount = coordinator.connectedNodes.length;
+      statusText = 'Waiting for Players $readyCount/$totalCount Ready';
+      backgroundColor = Color.fromARGB(255, 0, 150, 255);
+      textColor = Color.fromARGB(255, 255, 255, 255);
+    }
+
+    return Container(
+      height: 60,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(
+          color: Color.fromARGB(100, 255, 255, 255),
+          width: 1,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          statusText,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWaitingForCoordinatorWidget(BuildContext context) {
+    return ChangeNotifierProvider.value(
+      value: networkCoordinator,
+      child: Consumer<NetworkCoordinator>(
+        builder: (context, coordinator, child) {
+          String statusText;
+          Color backgroundColor;
+          Color textColor;
+          
+          if (coordinator.gameStarting) {
+            if (coordinator.scheduledStartTime != null) {
+              final remainingSeconds = coordinator.scheduledStartTime!
+                  .difference(DateTime.now())
+                  .inSeconds;
+              if (remainingSeconds > 0) {
+                statusText = 'Game Starting in ${remainingSeconds}s';
+                backgroundColor = Color.fromARGB(255, 255, 165, 0);
+                textColor = Color.fromARGB(255, 255, 255, 255);
+              } else {
+                statusText = 'Game Starting Now!';
+                backgroundColor = Color.fromARGB(255, 0, 255, 0);
+                textColor = Color.fromARGB(255, 0, 0, 0);
+              }
+            } else {
+              statusText = 'Waiting for All Players Ready...';
+              backgroundColor = Color.fromARGB(255, 255, 165, 0);
+              textColor = Color.fromARGB(255, 255, 255, 255);
+            }
+          } else if (coordinator.gameActive) {
+            statusText = 'Game in Progress';
+            backgroundColor = Color.fromARGB(255, 0, 255, 0);
+            textColor = Color.fromARGB(255, 0, 0, 0);
+          } else {
+            statusText = 'Waiting for Coordinator to Start';
+            backgroundColor = Color.fromARGB(255, 100, 100, 100);
+            textColor = Color.fromARGB(200, 255, 255, 255);
+          }
+
+          return Container(
+            height: 60,
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(
+                color: Color.fromARGB(100, 255, 255, 255),
+                width: 1,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                statusText,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -294,13 +421,10 @@ class MainMenuUI extends StatelessWidget
       // Use the new lifecycle: configure and start game
       await onStartGame();
       
-      // Remove the main menu overlay
-      game.overlays.remove(MainMenuUI.overlayID);
-
-      // Add the in-game UI overlay
-      game.overlays.add(InGameUI.overlayID);
+      // Don't transition UI here - wait for coordinated start callback
+      // UI transition will happen in _onGameActuallyStarted callback
       
-      appLog.info('Game started successfully');
+      appLog.info('Game coordination started - waiting for synchronized start');
     } catch (e) {
       appLog.severe('Failed to start game: $e');
       // Could show error dialog here

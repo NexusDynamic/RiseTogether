@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:liblsl_coordinator/liblsl_coordinator.dart' hide PlayerAction;
+import 'package:liblsl_coordinator/liblsl_coordinator.dart';
+import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'package:rise_together/src/services/net/network_config.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/game/action_system.dart';
@@ -40,44 +41,77 @@ class PlayerAssignment {
       );
 }
 
-/// Modern network coordinator using MultiLayerCoordinator
+/// Simplified network coordinator using LSLCoordinationSession
 class NetworkCoordinator extends ChangeNotifier with AppLogging {
-  Map<String, dynamic>? _transportInfo;
-  SessionResult? _sessionResult;
-  StreamSubscription? _eventSubscription;
-  StreamSubscription? _gameDataSubscription;
+  LSLCoordinationSession? _session;
+  StreamSubscription? _nodeJoinedSub;
+  StreamSubscription? _nodeLeftSub;
+  StreamSubscription? _userMessagesSub;
+  StreamSubscription? _streamStartSub;
+  StreamSubscription? _streamStopSub;
+  LSLDataStream? _gameDataStream;
 
   bool _isInitialized = false;
   bool _networkingEnabled = true;
   bool _gameActive = false;
+  bool _gameStarting = false;
   String? _deviceId;
+  String? _deviceUId;
   String? _deviceName;
+  DateTime? _scheduledStartTime;
 
-  final List<NetworkNode> _connectedNodes = [];
+  bool _inputAvailable = false;
+
   final Map<String, PlayerAssignment> _playerAssignments = {};
+  final Set<String> _readyNodes = {};
+  Map<String, dynamic>? _gameConfiguration;
+  VoidCallback? _onGameStartCallback;
 
   // Game action streaming
   ActionStreamManager? _actionManager;
 
   // Getters
   bool get isInitialized => _isInitialized;
-  bool get isCoordinator =>
-      _multiLayerCoordinator?.role == NodeRole.coordinator;
+  bool get isCoordinator => _session?.isCoordinator ?? false;
   bool get networkingEnabled => _networkingEnabled;
   bool get gameActive => _gameActive;
+  bool get gameStarting => _gameStarting;
   String? get deviceId => _deviceId;
+  String? get deviceUId => _deviceUId;
   String? get deviceName => _deviceName;
-  List<NetworkNode> get connectedNodes => List.unmodifiable(_connectedNodes);
+  DateTime? get scheduledStartTime => _scheduledStartTime;
+  Set<String> get readyNodes => Set.unmodifiable(_readyNodes);
+  List<Node> get connectedNodes => _session?.connectedNodes ?? [];
   List<PlayerAssignment> get playerAssignments =>
       _playerAssignments.values.toList();
-  PlayerAssignment? get currentPlayerAssignment =>
-      _deviceId != null ? _playerAssignments[_deviceId!] : null;
-  GamingCoordinationNode? get coordinationNode => _multiLayerCoordinator;
+  PlayerAssignment? get currentPlayerAssignment {
+    // Use the node UID from the coordination session, not the local device ID
+    final assignment = deviceUId != null ? _playerAssignments[deviceUId] : null;
+    if (assignment != null) {
+      appLog.fine(
+        'NetworkCoordinator: Current player assignment - Team: ${assignment.teamId}, Player: ${assignment.playerId}, Node: ${assignment.nodeId}',
+      );
+    } else {
+      appLog.warning(
+        'NetworkCoordinator: No current player assignment found for node: $deviceUId',
+      );
+    }
+    return assignment;
+  }
+
+  LSLCoordinationSession? get coordinationSession => _session;
   ActionStreamManager? get actionManager => _actionManager;
+  Map<String, dynamic>? get gameConfiguration => _gameConfiguration;
 
   /// Initialize with networking enabled/disabled
   Future<void> initialize({bool enableNetworking = true}) async {
     if (_isInitialized) return;
+
+    // Web platform always uses local mode (no LSL networking)
+    if (kIsWeb) {
+      enableNetworking = false;
+      appLog.info('Web platform detected - using local coordinator mode');
+    }
 
     _networkingEnabled = enableNetworking;
     appLog.info(
@@ -92,39 +126,60 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     }
 
     try {
-      _deviceId = RiseTogetherNetworkConfig.generateDeviceId();
       _deviceName = RiseTogetherNetworkConfig.generateDeviceName();
-      _transportInfo = CoordinatorFactory.getTransportInfo();
-      _sessionResult = await CoordinatorFactory.createSession(
-        sessionId: 'rise_together_net',
-        nodeId: _deviceId!,
-        nodeName: _deviceName!,
-        topology: NetworkTopology.hierarchical,
-        sessionMetadata: {
-          'experiment_type': 'rise_together',
-          'version': '1.0.0',
-          'supports_cross_platform': true,
-        },
-        nodeMetadata: {
-          'device_type': 'participant',
-          'capabilities': ['coordination', 'data_streaming'],
-          'platform': _transportInfo!['name'],
-        },
-        heartbeatInterval: const Duration(seconds: 5),
-        transportConfig: {
-          'lsl': {'ipv6': false, 'logLevel': 2},
-        },
+      _deviceId = RiseTogetherNetworkConfig.generateDeviceId();
+      _deviceUId = RiseTogetherNetworkConfig.generateDeviceUId();
+      final thisNodeConfig = NodeConfig(
+        name: _deviceName!,
+        id: _deviceId!,
+        uId: _deviceUId!,
+        capabilities: {NodeCapability.coordinator, NodeCapability.participant},
       );
 
-      await _sessionResult!.session.join();
+      // Create session configuration using the new simplified API
+      final sessionConfig = CoordinationSessionConfig(
+        name: 'rise_together_session',
+        heartbeatInterval: Duration(seconds: 2),
+        discoveryInterval: Duration(seconds: 5),
+        nodeTimeout: Duration(seconds: 10),
+        maxNodes: 8, // Allow up to 8 nodes
+      );
+
+      final coordinationConfig = CoordinationConfig(
+        name: "RiseTogetherCoordination",
+        sessionConfig: sessionConfig,
+        topologyConfig: HierarchicalTopologyConfig(
+          promotionStrategy: PromotionStrategyRandom(),
+          maxNodes: 8,
+        ),
+        streamConfig: CoordinationStreamConfig(
+          name: 'rise_together_coordination',
+          sampleRate: 50.0,
+        ),
+        transportConfig: LSLTransportConfig(
+          lslApiConfig: LSLApiConfig(
+            ipv6: IPv6Mode.disable,
+            logLevel: 2,
+            portRange: 1024,
+          ),
+          coordinationFrequency: 50.0,
+        ),
+      );
+
+      // Create and initialize session
+      _session = LSLCoordinationSession(
+        coordinationConfig,
+        thisNodeConfig: thisNodeConfig,
+      );
+      await _session!.initialize();
+      await _session!.join();
 
       _setupEventListeners();
-      _setupGameDataLayer();
       _setupGameActionManager();
 
       _isInitialized = true;
       appLog.info(
-        'NetworkCoordinator initialized - Role: ${_multiLayerCoordinator!.role}',
+        'NetworkCoordinator initialized - Role: ${isCoordinator ? "Coordinator" : "Participant"}',
       );
 
       // Set up default assignments if we're coordinator
@@ -147,7 +202,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     _setupGameActionManager();
 
     // Add local player assignment
-    _playerAssignments[_deviceId!] = PlayerAssignment(
+    _playerAssignments[_deviceUId!] = PlayerAssignment(
       nodeId: _deviceId!,
       nodeName: _deviceName!,
       teamId: 0,
@@ -163,58 +218,75 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     appLog.info('Game action manager initialized');
   }
 
-  void _setupGameDataLayer() {
-    if (_multiLayerCoordinator == null) return;
-
-    _multiLayerCoordinator!.gameEventStream.listen(_handleGameDataEvent);
-    appLog.info('Game data layer set up for high-frequency actions');
-  }
-
   void _setupEventListeners() {
-    if (_multiLayerCoordinator == null) return;
+    if (_session == null) return;
 
-    _eventSubscription = _multiLayerCoordinator!.eventStream.listen((event) {
-      appLog.info('Coordination event: ${event.runtimeType}');
-
-      switch (event) {
-        case TopologyChangedEvent():
-          _updateNodeList();
-          break;
-        case RoleChangedEvent():
-          appLog.info('Role changed to: ${_multiLayerCoordinator!.role}');
-          if (isCoordinator) {
-            _setupDefaultAssignments();
-            // Give the coordinator a moment to set up protocol, then refresh layers
-            Future.delayed(Duration(milliseconds: 500), () {
-              appLog.info('Checking game layer after coordinator promotion...');
-              _refreshGameLayer();
-            });
-          }
-          break;
-        case ApplicationEvent():
-          _handleApplicationEvent(event);
-          break;
-        case NodeJoinedEvent():
-          _updateNodeList();
-          _handleNewPlayerJoining(event);
-          break;
-        case NodeLeftEvent():
-          _updateNodeList();
-          break;
-      }
-
+    // Listen for node topology changes
+    _nodeJoinedSub = _session!.nodeJoined.listen((node) {
+      appLog.info('Node joined: ${node.name} (${node.uId})');
+      _handleNewPlayerJoining(node);
       notifyListeners();
+    });
+
+    _nodeLeftSub = _session!.nodeLeft.listen((node) {
+      appLog.info('Node left: ${node.name} (${node.uId})');
+      _playerAssignments.remove(node.uId);
+      notifyListeners();
+    });
+
+    // Listen for coordination messages
+    _userMessagesSub = _session!.userMessages.listen((message) {
+      appLog.info('Coordination message: ${message.messageId}');
+      _handleCoordinationMessage(message);
+    });
+
+    // Listen for game data stream commands
+    _streamStartSub = _session!.streamStartCommands.listen((command) async {
+      appLog.info('PARTICIPANT: Stream start command: ${command.streamName}');
+      if (command.streamName == 'GameData') {
+        appLog.info('PARTICIPANT: Setting up game data stream...');
+        await _setupGameDataStream();
+        appLog.info(
+          'PARTICIPANT: Game data stream created - should auto-send streamReady',
+        );
+      }
+    });
+
+    _streamStopSub = _session!.streamStopCommands.listen((command) {
+      appLog.info('Stream stop command: ${command.streamName}');
+      if (command.streamName == 'GameData') {
+        _gameDataStream = null;
+        _gameActive = false;
+        _gameStarting = false;
+        _readyNodes.clear();
+      }
+    });
+
+    // Listen for stream ready notifications
+    _session!.streamReadyNotifications.listen((notification) {
+      appLog.info(
+        'Stream ready from node: ${notification.fromNodeUId} for stream: ${notification.streamName}',
+      );
+      appLog.info(
+        'Is coordinator: $isCoordinator, Game starting: $_gameStarting',
+      );
+
+      if (notification.streamName == 'GameData') {
+        _handleStreamReady(notification.fromNodeUId);
+      } else {
+        appLog.info(
+          'Ignoring stream ready for non-GameData stream: ${notification.streamName}',
+        );
+      }
     });
   }
 
-  void _handleApplicationEvent(ApplicationEvent event) {
-    appLog.info('Application event: ${event.type}');
-
-    switch (event.type) {
+  void _handleCoordinationMessage(UserCoordinationMessage message) {
+    switch (message.messageId) {
       case 'player_assignments':
         if (!isCoordinator) {
           final assignmentsData =
-              event.data['assignments'] as Map<String, dynamic>?;
+              message.payload['assignments'] as Map<String, dynamic>?;
           if (assignmentsData != null) {
             _playerAssignments.clear();
             for (final entry in assignmentsData.entries) {
@@ -225,96 +297,248 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
             appLog.info(
               'Received player assignments: ${_playerAssignments.length} assignments',
             );
+            // Log each assignment for verification
+            _playerAssignments.forEach((nodeId, assignment) {
+              appLog.info(
+                '  - Node $nodeId: Team ${assignment.teamId}, Player ${assignment.playerId}',
+              );
+              if (nodeId == _deviceId) {
+                appLog.info(
+                  '  >>> THIS IS MY ASSIGNMENT! Device $_deviceId assigned to Team ${assignment.teamId}',
+                );
+              }
+            });
           }
         }
         break;
-      case 'protocol_ready':
-        // Protocol is ready, layers should now be functional
-        appLog.info('Protocol ready - layers should now be functional');
-        _refreshGameLayer();
+      case 'game_configuration':
+        if (!isCoordinator) {
+          _gameConfiguration = Map<String, dynamic>.from(message.payload);
+          appLog.info('Received game configuration from coordinator');
+          appLog.info(
+            'Configuration keys: ${_gameConfiguration!.keys.toList()}',
+          );
+          notifyListeners();
+        }
+        break;
+      case 'game_start_scheduled':
+        if (!isCoordinator) {
+          final startTimeStr = message.payload['start_time'] as String;
+          _scheduledStartTime = DateTime.parse(startTimeStr);
+          _gameStarting = true;
+          appLog.info(
+            'PARTICIPANT: Game start scheduled for: $_scheduledStartTime',
+          );
+          appLog.info('PARTICIPANT: Current time: ${DateTime.now()}');
+          _scheduleGameStart();
+          notifyListeners();
+        } else {
+          appLog.info(
+            'COORDINATOR: Ignoring game_start_scheduled message (sent by self)',
+          );
+        }
+        break;
+      case 'start_game':
+        if (!isCoordinator) {
+          appLog.info(
+            'PARTICIPANT: Game started by coordinator - transitioning to active state',
+          );
+          _gameActive = true;
+          _gameStarting = false;
+
+          appLog.info('PARTICIPANT: Triggering UI transition callback');
+          appLog.info(
+            'PARTICIPANT: Callback is null: ${_onGameStartCallback == null}',
+          );
+
+          // Trigger UI transition callback for participant
+          _onGameStartCallback?.call();
+
+          appLog.info('PARTICIPANT: UI transition callback called');
+          notifyListeners();
+        } else {
+          appLog.info(
+            'COORDINATOR: Ignoring start_game message (sent by self)',
+          );
+        }
+        break;
+      case 'stop_game':
+        if (!isCoordinator) {
+          appLog.info('Game stopped by coordinator');
+          _gameActive = false;
+          _gameStarting = false;
+          _readyNodes.clear();
+          notifyListeners();
+        }
         break;
     }
   }
 
-  void _refreshGameLayer() {
-    // Re-get the game layer in case it was replaced
-  }
+  Future<void> _setupGameDataStream() async {
+    if (_session == null || _gameDataStream != null) return;
 
-  void _handleGameDataEvent(GameEvent event) {
-    // Only process game data events from the gamedata layer
-    if (!_gameActive || _actionManager == null) {
-      return;
-    }
-    // for now, ignore anything that isn't an action
-    if (event.type != GameEventType.gameData) {
-      return;
-    }
-    final sample = GameDataSample.fromMap(event.data);
+    final streamConfig = DataStreamConfig(
+      name: 'GameData',
+      channels: 3, // teamId, actionIndex, playerIdHash
+      sampleRate: 120.0,
+      dataType: StreamDataType.int32,
+      participationMode: StreamParticipationMode.allNodes,
+    );
+    appLog.info('Creating game data stream...');
+    _gameDataStream = await _session!.createDataStream(streamConfig);
 
-    try {
-      final teamId = sample.channelData[0] as int;
-      final actionIndex = sample.channelData[1] as int;
-      final playerIdHash = sample.channelData[2] as int;
+    // Listen for incoming game actions
+    _gameDataStream!.inbox.listen((message) {
+      if (!_gameActive || _actionManager == null) return;
 
-      if (actionIndex >= 0 && actionIndex < PaddleAction.values.length) {
-        final action = PaddleAction.values[actionIndex];
-        final playerId = 'remote_${sample.sourceId}_$playerIdHash';
+      try {
+        final teamId = message.data[0] as int;
+        final actionIndex = message.data[1] as int;
+        final playerIdHash = message.data[2] as int;
 
-        final teamStream = _actionManager!.getTeamStream(teamId);
-        teamStream?.addAction(GameAction(playerId, action));
+        if (actionIndex >= 0 && actionIndex < PaddleAction.values.length) {
+          final action = PaddleAction.values[actionIndex];
+          final playerId = 'remote_player_$playerIdHash';
 
-        appLog.finest(
-          'Received network action: team=$teamId, player=$playerId, action=$action from ${sample.sourceId}',
-        );
+          final teamStream = _actionManager!.getTeamStream(teamId);
+          teamStream?.addAction(GameAction(playerId, action));
+
+          appLog.finest(
+            'Received network action: team=$teamId, player=$playerId, action=$action',
+          );
+        }
+      } catch (e) {
+        appLog.warning('Error processing game data: $e');
       }
-    } catch (e) {
-      appLog.warning('Error processing game data event: $e');
+    });
+
+    appLog.info('Game data stream created and ready');
+  }
+
+  Future<void> processPendingInputs() async {
+    if (!_inputAvailable || _gameDataStream == null || _actionManager == null) {
+      return;
     }
   }
 
-  void _handleNewPlayerJoining(NodeJoinedEvent event) {
+  void _handleNewPlayerJoining(Node node) {
     // Only allow new players to join before game starts
-    if (!_gameActive && isCoordinator) {
-      appLog.info('New player joining before game start: ${event.nodeName}');
-      // Auto-assign to a team (simple round-robin for now)
-      final teamId =
-          _playerAssignments.length % 2; // Alternate between team 0 and 1
-      assignNodeToTeam(event.nodeId, teamId);
+    if (!_gameActive && !_gameStarting && isCoordinator) {
+      appLog.info('New player joining before game start: ${node.name}');
+
+      // Auto-assign to the team with fewer players (better team balance)
+      final teamCounts = <int, int>{0: 0, 1: 0};
+      for (final assignment in _playerAssignments.values) {
+        teamCounts[assignment.teamId] =
+            (teamCounts[assignment.teamId] ?? 0) + 1;
+      }
+
+      // Assign to the team with fewer players
+      final teamId = (teamCounts[0]! <= teamCounts[1]!) ? 0 : 1;
+
+      appLog.info(
+        'Team counts - Team 0: ${teamCounts[0]}, Team 1: ${teamCounts[1]}',
+      );
+      appLog.info('Assigning ${node.name} to team $teamId');
+
+      assignNodeToTeam(node.uId, teamId);
     }
   }
 
-  void _updateNodeList() {
-    if (_multiLayerCoordinator == null) return;
+  void _handleStreamReady(String nodeUId) {
+    _readyNodes.add(nodeUId);
+    appLog.info(
+      'Node $nodeUId is ready. Ready nodes: ${_readyNodes.length}/${connectedNodes.length}',
+    );
+    appLog.info('Ready node IDs: ${_readyNodes.toList()}');
+    appLog.info(
+      'Connected node IDs: ${connectedNodes.map((n) => n.uId).toList()}',
+    );
 
-    _connectedNodes.clear();
-    _connectedNodes.addAll(_multiLayerCoordinator!.gameParticipants);
-
-    // Add ourselves if not in the list
-    final selfExists = _connectedNodes.any((node) => node.nodeId == _deviceId);
-    if (!selfExists) {
-      _connectedNodes.add(
-        NetworkNode(
-          nodeId: _deviceId!,
-          nodeName: _deviceName!,
-          role: _multiLayerCoordinator!.role,
-          lastSeen: DateTime.now(),
-          metadata: {},
-        ),
+    if (isCoordinator && _gameStarting) {
+      // Check if all connected nodes are ready
+      final allNodesReady = connectedNodes.every(
+        (node) => _readyNodes.contains(node.uId),
       );
+      appLog.info('All nodes ready check: $allNodesReady');
+
+      if (allNodesReady) {
+        appLog.info('All nodes are ready! Starting coordinated game start.');
+        _initiateCoordinatedStart();
+      } else {
+        // Debug which nodes are missing
+        final missingNodes = connectedNodes
+            .where((node) => !_readyNodes.contains(node.uId))
+            .map((node) => '${node.name} (${node.uId})')
+            .toList();
+        appLog.info('Still waiting for nodes: $missingNodes');
+      }
     }
 
-    appLog.fine('Node list updated: ${_connectedNodes.length} nodes');
+    notifyListeners();
+  }
+
+  void _initiateCoordinatedStart() {
+    // Schedule game start 5 seconds in the future
+    _scheduledStartTime = DateTime.now().add(Duration(seconds: 5));
+    _gameStarting = true;
+
+    // Notify all participants of the scheduled start time
+    _session!.sendUserMessage(
+      'game_start_scheduled',
+      'Game will start at scheduled time',
+      {'start_time': _scheduledStartTime!.toIso8601String()},
+    );
+
+    appLog.info('Coordinated game start scheduled for: $_scheduledStartTime');
+    _scheduleGameStart();
+    notifyListeners();
+  }
+
+  void _scheduleGameStart() {
+    if (_scheduledStartTime == null) return;
+
+    final delay = _scheduledStartTime!.difference(DateTime.now());
+    if (delay.isNegative) {
+      // Start immediately if we're past the scheduled time
+      _actuallyStartGame();
+    } else {
+      // Schedule the start
+      Timer(delay, _actuallyStartGame);
+      appLog.info('Game will start in ${delay.inSeconds} seconds');
+    }
+  }
+
+  void _actuallyStartGame() {
+    _gameActive = true;
+    _gameStarting = false;
+
+    if (isCoordinator) {
+      // Send final start message
+      _session!.sendUserMessage('start_game', 'Game started now!', {});
+    }
+
+    appLog.info('Game has started! Triggering UI transition.');
+    appLog.info('Callback is null: ${_onGameStartCallback == null}');
+
+    // Trigger UI transition callback
+    _onGameStartCallback?.call();
+
+    appLog.info('UI transition callback called');
+    notifyListeners();
   }
 
   void _setupDefaultAssignments() {
-    _playerAssignments[_deviceId!] = PlayerAssignment(
+    _playerAssignments[_deviceUId!] = PlayerAssignment(
       nodeId: _deviceId!,
       nodeName: _deviceName!,
       teamId: 0,
       playerId: 'currentPlayer',
       isCoordinator: true,
     );
-    appLog.info('Set up default coordinator assignment');
+    appLog.info(
+      'Coordinator: Set up default assignment - Team 0, Player: currentPlayer, Node: $_deviceId',
+    );
   }
 
   /// Assign a node to a team (coordinator only)
@@ -324,17 +548,21 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       return;
     }
 
-    final node = _connectedNodes.firstWhere(
-      (n) => n.nodeId == nodeId,
+    final node = connectedNodes.firstWhere(
+      (n) => n.uId == nodeId,
       orElse: () => throw ArgumentError('Node not found: $nodeId'),
     );
 
     _playerAssignments[nodeId] = PlayerAssignment(
       nodeId: nodeId,
-      nodeName: node.nodeName,
+      nodeName: node.name,
       teamId: teamId,
       playerId: 'player_${nodeId.substring(0, 8)}',
       isCoordinator: nodeId == _deviceId,
+    );
+
+    appLog.info(
+      'Coordinator: Assigned node $nodeId (${node.name}) to team $teamId',
     );
 
     if (_networkingEnabled) {
@@ -344,23 +572,92 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
   }
 
   void _broadcastAssignments() {
-    if (!isCoordinator || _multiLayerCoordinator == null) return;
+    if (!isCoordinator || _session == null) return;
 
     final assignmentData = {
       'assignments': _playerAssignments.map((k, v) => MapEntry(k, v.toMap())),
     };
 
-    _multiLayerCoordinator!.sendCoordinationMessage(
+    _session!.sendUserMessage(
       'player_assignments',
+      'Player team assignments update',
       assignmentData,
     );
+
+    appLog.info(
+      'Broadcasted player assignments to ${connectedNodes.length} participants',
+    );
+
+    // Log assignments being sent for verification
+    _playerAssignments.forEach((nodeId, assignment) {
+      appLog.info(
+        '  - Broadcasting: Node $nodeId → Team ${assignment.teamId}, Player ${assignment.playerId}',
+      );
+    });
   }
 
-  /// Send a game action over the network using the high-frequency game layer
+  /// Set and broadcast game configuration (coordinator only)
+  void setGameConfiguration(Map<String, dynamic> config) {
+    if (!isCoordinator) {
+      appLog.warning('Only coordinator can set game configuration');
+      return;
+    }
+
+    // Store the configuration locally
+    _gameConfiguration = Map<String, dynamic>.from(config);
+    appLog.info('Game configuration set: ${config.keys.toList()}');
+
+    // Broadcast to all participants if networking is enabled
+    if (_networkingEnabled && _session != null) {
+      _session!.sendUserMessage(
+        'game_configuration',
+        'Game configuration from coordinator',
+        _gameConfiguration!,
+      );
+      appLog.info(
+        'Broadcasted game configuration to ${connectedNodes.length} participants',
+      );
+    }
+
+    notifyListeners();
+  }
+
+  /// Get the current game configuration with fallbacks
+  Map<String, dynamic> getEffectiveGameConfiguration() {
+    // If we have received/set configuration, use it
+    if (_gameConfiguration != null) {
+      return Map<String, dynamic>.from(_gameConfiguration!);
+    }
+
+    // Fallback to default configuration
+    return getDefaultGameConfiguration();
+  }
+
+  /// Get default game configuration
+  Map<String, dynamic> getDefaultGameConfiguration() {
+    return {
+      'game': {
+        'tournament_rounds': 3,
+        'levels_per_round': 2,
+        'level_duration': 120.0, // seconds
+        'distance_multiplier': 10.0,
+        'enable_surveys': false,
+      },
+      'teams': {'team_1_color': 'blue', 'team_2_color': 'orange'},
+      'coordinator': {'device_id': _deviceId, 'device_name': _deviceName},
+      'session': {
+        'session_id': 'rise_together_${DateTime.now().millisecondsSinceEpoch}',
+        'created_at': DateTime.now().toIso8601String(),
+        'networking_enabled': _networkingEnabled,
+      },
+    };
+  }
+
+  /// Send a game action over the network using the game data stream
   void sendGameAction(int teamId, String playerId, PaddleAction action) {
-    if (!_networkingEnabled || !_gameActive) {
+    if (!_networkingEnabled || !_gameActive || _gameDataStream == null) {
       appLog.finest(
-        'Skipping game action: networking=$_networkingEnabled, gameActive=$_gameActive}',
+        'Skipping game action: networking=$_networkingEnabled, gameActive=$_gameActive, stream=${_gameDataStream != null}',
       );
       return;
     }
@@ -369,40 +666,116 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       final playerIdHash = playerId.hashCode;
       final sample = [teamId, action.index, playerIdHash];
 
-      _multiLayerCoordinator!.sendGameData(sample);
+      _gameDataStream!.sendData(sample);
       appLog.finest(
         'Sent game action: team=$teamId, player=$playerId, action=$action',
       );
     } catch (e) {
-      appLog.warning(
-        'Failed to send game action: $e - This suggests the game layer is still a placeholder. MultiLayerCoordinator may need more time to establish full coordination.',
-      );
+      appLog.warning('Failed to send game action: $e');
     }
   }
 
-  /// Start the game (enable game data layer)
-  void startGame() {
-    _gameActive = true;
+  /// Start the game (coordinator initiates coordinated start)
+  Future<void> startGame() async {
+    if (!isCoordinator) {
+      appLog.warning('Only coordinator can start the game');
+      return;
+    }
 
-    // Resume/unpause the game data layer
+    // Set up default game configuration if none exists
+    if (_gameConfiguration == null) {
+      _gameConfiguration = getDefaultGameConfiguration();
+      appLog.info('Using default game configuration');
+    }
 
-    _multiLayerCoordinator!.resumeGameDataTransport();
-    appLog.info('Game data layer resumed for active gameplay');
+    // Broadcast current game configuration and team assignments
+    if (_networkingEnabled && _session != null) {
+      // Send configuration
+      _session!.sendUserMessage(
+        'game_configuration',
+        'Game configuration from coordinator',
+        _gameConfiguration!,
+      );
+
+      // Ensure team assignments are also broadcasted
+      _broadcastAssignments();
+
+      appLog.info('Broadcasted configuration and assignments to participants');
+
+      // Give participants a moment to receive configuration
+      await Future.delayed(Duration(milliseconds: 500));
+
+      // Validate sync status before proceeding
+      validateSync();
+    }
+
+    // Create and start the game data stream
+    if (_gameDataStream == null) {
+      await _setupGameDataStream();
+    }
+
+    await _session!.startStream('GameData');
+    appLog.info(
+      'Game data stream started, waiting for all nodes to be ready...',
+    );
+
+    _gameStarting = true;
+    _readyNodes.clear();
+
+    // Add coordinator as ready immediately
+    _readyNodes.add(_session!.thisNode.uId);
+
+    // Debug logging
+    appLog.info('Connected nodes count: ${connectedNodes.length}');
+    appLog.info(
+      'Connected node IDs: ${connectedNodes.map((n) => '${n.name}(${n.uId.substring(0, 8)})').join(', ')}',
+    );
+    appLog.info(
+      'Ready nodes: ${_readyNodes.length} - ${_readyNodes.map((id) => id.substring(0, 8)).join(', ')}',
+    );
+
+    // Check if we're the only node (single player or web)
+    if (connectedNodes.length <= 1) {
+      appLog.info('Single player mode - starting immediately');
+      _actuallyStartGame();
+    } else {
+      appLog.info(
+        'Multiplayer mode - waiting for ${connectedNodes.length} nodes to be ready',
+      );
+      appLog.info('Will start when all nodes send streamReady notifications');
+
+      // Check if somehow all nodes are already ready (shouldn't happen but let's be safe)
+      final allNodesReady = connectedNodes.every(
+        (node) => _readyNodes.contains(node.uId),
+      );
+      if (allNodesReady) {
+        appLog.warning(
+          'All nodes already ready - this is unexpected, but starting coordinated sequence',
+        );
+        _initiateCoordinatedStart();
+      }
+    }
+
     notifyListeners();
   }
 
-  /// Stop the game (re-enable peer discovery, pause game data layer)
-  void stopGame() {
+  /// Stop the game
+  Future<void> stopGame() async {
     _gameActive = false;
 
-    // Pause the game data layer to save resources
+    if (isCoordinator) {
+      // Coordinator stops the game data stream and notifies participants
+      await _session!.stopStream('GameData');
+      await _session!.sendUserMessage(
+        'stop_game',
+        'Game stopped by coordinator',
+        {},
+      );
+      appLog.info('Game stopped and participants notified');
+    } else {
+      appLog.info('Game marked as inactive');
+    }
 
-    _multiLayerCoordinator!.pauseGameDataTransport();
-    appLog.info('Game data layer paused');
-
-    appLog.info(
-      'Game stopped - peer discovery re-enabled, game data layer paused',
-    );
     notifyListeners();
   }
 
@@ -411,56 +784,99 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     return _playerAssignments.isNotEmpty;
   }
 
-  /// Get game configuration
+  /// Get game configuration (legacy method - now uses new system)
   Map<String, dynamic> getGameConfiguration() {
-    return {
-      'assignments': _playerAssignments.map((k, v) => MapEntry(k, v.toMap())),
-      'coordinator': _deviceId,
-      'gameMode': _networkingEnabled ? 'network' : 'local',
-      'networkingEnabled': _networkingEnabled,
-    };
+    final config = getEffectiveGameConfiguration();
+
+    // Add runtime information
+    config['assignments'] = _playerAssignments.map(
+      (k, v) => MapEntry(k, v.toMap()),
+    );
+    config['coordinator'] = _deviceId;
+    config['gameMode'] = _networkingEnabled ? 'network' : 'local';
+    config['networkingEnabled'] = _networkingEnabled;
+    config['connectedNodes'] = connectedNodes.length;
+    config['gameActive'] = _gameActive;
+    config['gameStarting'] = _gameStarting;
+
+    return config;
+  }
+
+  /// Validate that configuration and assignments are properly synced
+  Map<String, dynamic> validateSync() {
+    final status = <String, dynamic>{};
+
+    // Check configuration sync
+    status['configurationSynced'] = _gameConfiguration != null;
+    status['assignmentCount'] = _playerAssignments.length;
+    status['connectedNodeCount'] = connectedNodes.length;
+
+    // Check if all connected nodes have assignments
+    final assignedNodes = _playerAssignments.keys.toSet();
+    final connectedNodeIds = connectedNodes.map((n) => n.uId).toSet();
+    final unassignedNodes = connectedNodeIds.difference(assignedNodes);
+
+    status['allNodesAssigned'] = unassignedNodes.isEmpty;
+    status['unassignedNodes'] = unassignedNodes.toList();
+
+    // Team distribution
+    final teamCounts = <int, int>{};
+    for (final assignment in _playerAssignments.values) {
+      teamCounts[assignment.teamId] = (teamCounts[assignment.teamId] ?? 0) + 1;
+    }
+    status['teamDistribution'] = teamCounts;
+
+    // Log validation results
+    appLog.info('=== SYNC VALIDATION ===');
+    appLog.info('Configuration synced: ${status['configurationSynced']}');
+    appLog.info(
+      'Assignments: ${status['assignmentCount']}/${status['connectedNodeCount']} nodes',
+    );
+    appLog.info('All nodes assigned: ${status['allNodesAssigned']}');
+    appLog.info('Team distribution: ${status['teamDistribution']}');
+    if (unassignedNodes.isNotEmpty) {
+      appLog.warning('Unassigned nodes: $unassignedNodes');
+    }
+    appLog.info('=======================');
+
+    return status;
+  }
+
+  /// Set callback to be called when game actually starts
+  void setOnGameStartCallback(VoidCallback callback) {
+    _onGameStartCallback = callback;
   }
 
   /// Wait for nodes to join
-  Future<List<NetworkNode>> waitForNodes(
-    int minNodes, {
-    Duration? timeout,
-  }) async {
-    if (!_networkingEnabled || _multiLayerCoordinator == null) {
-      return _connectedNodes;
+  Future<List<Node>> waitForNodes(int minNodes, {Duration? timeout}) async {
+    if (!_networkingEnabled || _session == null) {
+      return connectedNodes;
     }
-    return await _multiLayerCoordinator!.waitForNodes(
-      minNodes,
-      timeout: timeout,
-    );
+    await _session!.waitForMinNodes(minNodes, timeout: timeout);
+    return connectedNodes;
   }
 
   /// Get coordinator node
-  NetworkNode? getCoordinator() {
-    if (!_networkingEnabled) {
-      return _connectedNodes.isNotEmpty ? _connectedNodes.first : null;
+  Node? getCoordinator() {
+    if (!_networkingEnabled || _session == null) {
+      return connectedNodes.isNotEmpty ? connectedNodes.first : null;
     }
 
-    final coordinatorId = _multiLayerCoordinator?.gameCoordinatorId;
-    if (coordinatorId == null) return null;
-
-    return _connectedNodes.firstWhere(
-      (node) => node.nodeId == coordinatorId,
-      orElse: () => NetworkNode(
-        nodeId: coordinatorId,
-        nodeName: 'Coordinator',
-        role: NodeRole.coordinator,
-        lastSeen: DateTime.now(),
-      ),
+    return connectedNodes.firstWhere(
+      (node) => node.uId == _session!.coordinatorUId,
+      orElse: () => connectedNodes.first,
     );
   }
 
   @override
   void dispose() {
-    _eventSubscription?.cancel();
-    _gameDataSubscription?.cancel();
+    _nodeJoinedSub?.cancel();
+    _nodeLeftSub?.cancel();
+    _userMessagesSub?.cancel();
+    _streamStartSub?.cancel();
+    _streamStopSub?.cancel();
     _actionManager?.dispose();
-    _multiLayerCoordinator?.dispose();
+    _session?.dispose();
     _isInitialized = false;
     super.dispose();
   }

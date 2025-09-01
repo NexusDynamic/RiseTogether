@@ -15,7 +15,7 @@ abstract class ActionProvider {
   Future<void> startGameplay();
   
   /// Stop gameplay mode (coordinator sends stop signal)
-  void stopGameplay();
+  Future<void> stopGameplay();
   
   /// Check if this node is the coordinator
   bool get isCoordinator;
@@ -74,7 +74,7 @@ class LocalActionProvider implements ActionProvider {
   }
   
   @override
-  void stopGameplay() {
+  Future<void> stopGameplay() async {
     // Nothing special needed for local mode
   }
   
@@ -89,6 +89,9 @@ class LocalActionProvider implements ActionProvider {
 /// Coordinator nodes can also be players
 class NetworkActionProvider implements ActionProvider {
   final NetworkCoordinator _networkCoordinator;
+  
+  /// Get the underlying network coordinator
+  NetworkCoordinator get networkCoordinator => _networkCoordinator;
   late final NetworkBridge _networkBridge;
   
   NetworkActionProvider(this._networkCoordinator);
@@ -126,16 +129,16 @@ class NetworkActionProvider implements ActionProvider {
   Future<void> startGameplay() async {
     // Only coordinator can start the game
     if (isCoordinator) {
-      _networkCoordinator.startGame();
+      await _networkCoordinator.startGame();
     }
     // All nodes (including coordinator) participate as players
   }
   
   @override
-  void stopGameplay() {
+  Future<void> stopGameplay() async {
     // Only coordinator can stop the game
     if (isCoordinator) {
-      _networkCoordinator.stopGame();
+      await _networkCoordinator.stopGame();
     }
   }
   
