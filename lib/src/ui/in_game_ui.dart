@@ -60,6 +60,7 @@ class InGameUI extends StatelessWidget
         children: [
           _buildTimeDisplay(context, screenWidth),
           _buildTeamControls(context, screenWidth, screenHeight),
+          _buildPlayerInputIndicators(context, screenWidth, screenHeight),
         ],
       ),
     );
@@ -112,9 +113,13 @@ class InGameUI extends StatelessWidget
                 final distanceTracker = Provider.of<DistanceTracker>(ctx);
                 final leftTeamId = game.getActualTeamId(0);
                 final rightTeamId = game.getActualTeamId(1);
-                final leftDistance = distanceTracker.getFormattedDistance(leftTeamId);
-                final rightDistance = distanceTracker.getFormattedDistance(rightTeamId);
-                
+                final leftDistance = distanceTracker.getFormattedDistance(
+                  leftTeamId,
+                );
+                final rightDistance = distanceTracker.getFormattedDistance(
+                  rightTeamId,
+                );
+
                 return Text(
                   'My Team: $leftDistance | Opponent: $rightDistance',
                   textAlign: TextAlign.center,
@@ -159,9 +164,17 @@ class InGameUI extends StatelessWidget
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildProgressIndicator(context, game.getActualTeamId(0), screenHeight),
+                _buildProgressIndicator(
+                  context,
+                  game.getActualTeamId(0),
+                  screenHeight,
+                ),
                 SizedBox(width: 20),
-                _buildProgressIndicator(context, game.getActualTeamId(1), screenHeight),
+                _buildProgressIndicator(
+                  context,
+                  game.getActualTeamId(1),
+                  screenHeight,
+                ),
               ],
             ),
           ),
@@ -208,7 +221,8 @@ class InGameUI extends StatelessWidget
     // Get current player's team assignment from network coordinator
     final currentPlayerTeamId = _getCurrentPlayerTeamId();
     final currentPlayerTeam = Team.fromId(currentPlayerTeamId);
-    
+    final currentPlayerId = game.currentPlayerAssignment?.nodeId ?? 'unknown';
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -224,7 +238,7 @@ class InGameUI extends StatelessWidget
         const SizedBox(height: 10),
         _buildActionButton(
           teamId: currentPlayerTeamId, // Always use player's assigned team
-          playerId: 'currentPlayer',
+          playerId: currentPlayerId,
           action: side == 'left' ? PaddleAction.left : PaddleAction.right,
           icon: CupertinoIcons.arrow_up_to_line,
           color: getTeamColorWithOpacity(currentPlayerTeam, 0.8),
@@ -241,10 +255,14 @@ class InGameUI extends StatelessWidget
       if (currentAssignment == null) {
         throw StateError('Current player assignment not found');
       }
-      appLog.info('UI: Current player assignment - Team: ${currentAssignment.teamId}, Player: ${currentAssignment.playerId}, Node: ${currentAssignment.nodeId}');
+      appLog.info(
+        'UI: Current player assignment - Team: ${currentAssignment.teamId}, Player: ${currentAssignment.playerId}, Node: ${currentAssignment.nodeId}',
+      );
       return currentAssignment.teamId;
     } catch (e) {
-      appLog.warning('Could not get current player team assignment: $e, defaulting to Team A');
+      appLog.warning(
+        'Could not get current player team assignment: $e, defaulting to Team A',
+      );
       return Team.a.id; // Default to team A if network coordinator unavailable
     }
   }
@@ -276,7 +294,7 @@ class InGameUI extends StatelessWidget
     // Get the actual teams for left and right display positions
     final leftTeamId = game.getActualTeamId(0);
     final rightTeamId = game.getActualTeamId(1);
-    
+
     return [
       // Left team controls (Player's team)
       Positioned(
@@ -307,7 +325,7 @@ class InGameUI extends StatelessWidget
     final playerAssignment = game.currentPlayerAssignment;
     final isMyTeam = playerAssignment?.teamId == team.id;
     final teamLabel = isMyTeam ? 'My Team' : 'Opponent';
-    
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -407,6 +425,10 @@ class InGameUI extends StatelessWidget
         return Listener(
           onPointerDown: (_) =>
               _handleActionPress(teamId, playerId, action, controller),
+          onPointerPanZoomStart: (_) =>
+              _handleActionPress(teamId, playerId, action, controller),
+          onPointerPanZoomEnd: (_) =>
+              _handleActionRelease(teamId, playerId, controller),
           onPointerUp: (_) =>
               _handleActionRelease(teamId, playerId, controller),
           onPointerCancel: (_) =>
@@ -465,6 +487,143 @@ class InGameUI extends StatelessWidget
     controller.clearPlayerAction(playerId);
     // Send none action to the game
     _sendAction(teamId, playerId, PaddleAction.none);
+  }
+
+  Widget _buildPlayerInputIndicators(
+    BuildContext context,
+    double screenWidth,
+    double screenHeight,
+  ) {
+    return Positioned.fill(
+      child: ChangeNotifierProvider.value(
+        value: game.bitflagsNotifier,
+        child: Consumer<BitflagsNotifier>(
+          builder: (context, bitflags, child) {
+            return Stack(
+              children: [
+                // Left team indicators
+                _buildTeamInputIndicators(
+                  teamId: game.getActualTeamId(0),
+                  screenWidth: screenWidth,
+                  screenHeight: screenHeight,
+                  isLeftSide: true,
+                ),
+                // Right team indicators  
+                _buildTeamInputIndicators(
+                  teamId: game.getActualTeamId(1),
+                  screenWidth: screenWidth,
+                  screenHeight: screenHeight,
+                  isLeftSide: false,
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTeamInputIndicators({
+    required int teamId,
+    required double screenWidth,
+    required double screenHeight,
+    required bool isLeftSide,
+  }) {
+    final leftBitflags = game.getTeamLeftBitflags(teamId);
+    final rightBitflags = game.getTeamRightBitflags(teamId);
+    final allPlayers = game.getAllPlayersBitflags();
+    
+    // Debug logging
+    appLog.info('UI: Team $teamId indicators - Left: $leftBitflags, Right: $rightBitflags, Players: ${allPlayers.length}');
+
+    // Filter players for this team
+    final teamPlayers = allPlayers.where((p) => p['teamId'] == teamId).toList();
+    if (teamPlayers.isEmpty) return SizedBox.shrink();
+
+    // Calculate positions - indicators go under the paddles (around 60% down)
+    final teamWidth = screenWidth / 2;
+    final leftOffset = isLeftSide ? 0.0 : screenWidth / 2;
+    final indicatorY = screenHeight * 0.6; // Under the paddles
+    final indicatorSize = 8.0;
+    final indicatorSpacing = 4.0;
+
+    return Positioned(
+      left: leftOffset,
+      top: indicatorY,
+      width: teamWidth,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Left input indicators
+          _buildDirectionIndicators(
+            teamPlayers: teamPlayers,
+            activeBitflags: leftBitflags,
+            indicatorSize: indicatorSize,
+            indicatorSpacing: indicatorSpacing,
+          ),
+          SizedBox(width: 20), // Space between left and right sides
+          // Right input indicators
+          _buildDirectionIndicators(
+            teamPlayers: teamPlayers,
+            activeBitflags: rightBitflags,
+            indicatorSize: indicatorSize,
+            indicatorSpacing: indicatorSpacing,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDirectionIndicators({
+    required List<Map<String, dynamic>> teamPlayers,
+    required int activeBitflags,
+    required double indicatorSize,
+    required double indicatorSpacing,
+  }) {
+    final activeIndicators = <Widget>[];
+
+    for (final player in teamPlayers) {
+      final playerBitflag = player['bitflagValue'] as int;
+      final playerIndex = player['index'] as int;
+      
+      if (activeBitflags & playerBitflag != 0) {
+        // This player is pressing this direction
+        final playerColor = game.getPlayerColor(playerIndex);
+        activeIndicators.add(
+          Container(
+            width: indicatorSize,
+            height: indicatorSize,
+            margin: EdgeInsets.symmetric(horizontal: indicatorSpacing / 2),
+            decoration: BoxDecoration(
+              color: playerColor,
+              shape: BoxShape.rectangle, // Square blocks
+              borderRadius: BorderRadius.circular(1), // Slightly rounded corners
+              border: Border.all(
+                color: CupertinoColors.white,
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: CupertinoColors.black.withValues(alpha: 0.4),
+                  spreadRadius: 1,
+                  blurRadius: 2,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    if (activeIndicators.isEmpty) {
+      return SizedBox(width: indicatorSize, height: indicatorSize);
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: activeIndicators,
+    );
   }
 
   void _sendAction(int teamId, String playerId, PaddleAction action) {

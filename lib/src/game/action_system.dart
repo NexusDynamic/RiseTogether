@@ -10,12 +10,19 @@ class TeamActionStream {
   final StreamController<GameAction> _controller =
       StreamController<GameAction>.broadcast();
   final Map<String, PaddleAction> _currentActions = {};
+  
+  // Callback to get player bitflag mapping
+  Map<String, int> Function()? _getPlayerBitflags;
 
   Stream<GameAction> get actionStream => _controller.stream;
   Stream<TeamThrust> get thrustStream =>
       _controller.stream.map((_) => _calculateThrust());
 
-  TeamActionStream({required this.teamId, required this.maxPlayers});
+  TeamActionStream({
+    required this.teamId, 
+    required this.maxPlayers,
+    Map<String, int> Function()? getPlayerBitflags,
+  }) : _getPlayerBitflags = getPlayerBitflags;
 
   void addAction(GameAction action) {
     _currentActions[action.playerId] = action.action;
@@ -28,17 +35,38 @@ class TeamActionStream {
   }
 
   TeamThrust _calculateThrust() {
-    final actions = _currentActions.values.toList();
-    final leftCount = actions.where((a) => a == PaddleAction.left).length;
-    final rightCount = actions.where((a) => a == PaddleAction.right).length;
+    final leftCount = _currentActions.values.where((a) => a == PaddleAction.left).length;
+    final rightCount = _currentActions.values.where((a) => a == PaddleAction.right).length;
     final activeCount = leftCount + rightCount;
 
     final thrustPerPlayer = 1.0 / maxPlayers;
+
+    // Calculate bitflags for left and right inputs
+    int leftBitflags = 0;
+    int rightBitflags = 0;
+    
+    if (_getPlayerBitflags != null) {
+      final playerBitflags = _getPlayerBitflags!();
+      
+      for (final entry in _currentActions.entries) {
+        final playerId = entry.key;
+        final action = entry.value;
+        final playerBitflag = playerBitflags[playerId] ?? 0;
+        
+        if (action == PaddleAction.left) {
+          leftBitflags |= playerBitflag;
+        } else if (action == PaddleAction.right) {
+          rightBitflags |= playerBitflag;
+        }
+      }
+    }
 
     return TeamThrust(
       leftThrust: leftCount * thrustPerPlayer,
       rightThrust: rightCount * thrustPerPlayer,
       activePlayerCount: activeCount,
+      leftBitflags: leftBitflags,
+      rightBitflags: rightBitflags,
     );
   }
 
@@ -53,8 +81,16 @@ class TeamActionStream {
 class ActionStreamManager {
   final Map<int, TeamActionStream> _teamStreams = {};
 
-  TeamActionStream createTeamStream(int teamId, int maxPlayers) {
-    final stream = TeamActionStream(teamId: teamId, maxPlayers: maxPlayers);
+  TeamActionStream createTeamStream(
+    int teamId, 
+    int maxPlayers, 
+    {Map<String, int> Function()? getPlayerBitflags}
+  ) {
+    final stream = TeamActionStream(
+      teamId: teamId, 
+      maxPlayers: maxPlayers,
+      getPlayerBitflags: getPlayerBitflags,
+    );
     _teamStreams[teamId] = stream;
     return stream;
   }

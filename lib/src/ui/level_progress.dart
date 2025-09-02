@@ -17,13 +17,13 @@ class LevelProgressMeter extends StatelessWidget {
         MediaQuery.of(context).size.height * 0.75; // 80% of screen height
 
     return SizedBox(
-      width: 10,
+      width: 20,
       height: height,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           Container(
-            width: 10,
+            width: 20,
             height: height,
             color: const Color.fromARGB(150, 127, 127, 127),
             child: Stack(

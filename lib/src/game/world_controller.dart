@@ -9,7 +9,7 @@ import 'package:rise_together/src/services/log_service.dart';
 /// Controls the connection between team action streams and world paddles
 class WorldController with AppLogging {
   final RiseTogetherWorld world;
-  final TeamActionStream actionStream;
+  TeamActionStream actionStream;
   late StreamSubscription<TeamThrust> _thrustSubscription;
   Paddle? _paddle;
 
@@ -21,6 +21,20 @@ class WorldController with AppLogging {
     _thrustSubscription = actionStream.thrustStream.listen((thrust) {
       _updatePaddleThrust(thrust);
     });
+  }
+
+  void setActionStream(TeamActionStream newStream) {
+    // Cancel existing subscription
+    _thrustSubscription.cancel();
+
+    actionStream = newStream;
+
+    // Resubscribe to the new stream
+    _thrustSubscription = actionStream.thrustStream.listen((thrust) {
+      _updatePaddleThrust(thrust);
+    });
+
+    appLog.fine('Action stream updated for team ${actionStream.teamId}');
   }
 
   void setPaddle(Paddle paddle) {

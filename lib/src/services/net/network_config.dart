@@ -29,7 +29,7 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
 
     // Try to get from app settings first
     try {
-      final savedDeviceId = _config.appSettings.getString('network.device_id');
+      final savedDeviceId = _config.appSettings.getString('device.device_id');
       if (savedDeviceId.isNotEmpty) {
         _cachedDeviceId = savedDeviceId;
         _config.appLog.info(
@@ -56,7 +56,7 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
 
     // Save to settings for persistence
     try {
-      _config.appSettings.setString('network.device_id', _cachedDeviceId!);
+      _config.appSettings.setString('device.device_id', _cachedDeviceId!);
       _config.appLog.fine('NetworkConfig: Saved device ID to settings');
     } catch (e) {
       _config.appLog.warning(
@@ -77,7 +77,7 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
     // Try to get from app settings first
     try {
       final savedDeviceName = _config.appSettings.getString(
-        'network.device_name',
+        'device.device_name',
       );
       if (savedDeviceName.isNotEmpty) {
         _cachedDeviceName = savedDeviceName;
@@ -95,7 +95,7 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
 
     // Save to settings for persistence
     try {
-      _config.appSettings.setString('network.device_name', _cachedDeviceName!);
+      _config.appSettings.setString('device.device_name', _cachedDeviceName!);
     } catch (e) {
       // Settings not available, will save later
     }
@@ -110,9 +110,7 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
 
     // Try to get from app settings first
     try {
-      final savedDeviceUId = _config.appSettings.getString(
-        'network.device_uid',
-      );
+      final savedDeviceUId = _config.appSettings.getString('device.device_uid');
       if (savedDeviceUId.isNotEmpty) {
         _cachedDeviceUId = savedDeviceUId;
         return _cachedDeviceUId!;
@@ -126,7 +124,7 @@ class RiseTogetherNetworkConfig with AppSettings, AppLogging {
 
     // Save to settings for persistence
     try {
-      _config.appSettings.setString('network.device_uid', _cachedDeviceUId!);
+      _config.appSettings.setString('device.device_uid', _cachedDeviceUId!);
     } catch (e) {
       // Settings not available, will save later
     }

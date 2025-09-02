@@ -18,10 +18,46 @@ import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/game/distance_tracker.dart';
 import 'package:rise_together/src/game/action_provider.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
-import 'package:rise_together/src/attributes/team_provider.dart';
+// import 'package:rise_together/src/attributes/team_provider.dart';
 import 'package:rise_together/src/services/network_coordinator.dart'
     show PlayerAssignment, NetworkCoordinator;
 import 'rise_together_world.dart';
+import 'dart:collection';
+
+/// Notifier for player input bitflag changes
+class BitflagsNotifier with ChangeNotifier {
+  final Map<int, int> _leftBitflags = {}; // teamId -> leftBitflags
+  final Map<int, int> _rightBitflags = {}; // teamId -> rightBitflags
+
+  int getLeftBitflags(int teamId) => _leftBitflags[teamId] ?? 0;
+  int getRightBitflags(int teamId) => _rightBitflags[teamId] ?? 0;
+
+  void updateBitflags(int teamId, int leftBitflags, int rightBitflags) {
+    final prevLeft = _leftBitflags[teamId] ?? 0;
+    final prevRight = _rightBitflags[teamId] ?? 0;
+
+    if (leftBitflags != prevLeft || rightBitflags != prevRight) {
+      _leftBitflags[teamId] = leftBitflags;
+      _rightBitflags[teamId] = rightBitflags;
+      notifyListeners();
+    }
+  }
+
+  void clear() {
+    _leftBitflags.clear();
+    _rightBitflags.clear();
+    notifyListeners();
+  }
+}
+
+/// Physics snapshot for authoritative physics state
+class PhysicsSnapshot {
+  final double timestamp;
+  final List<double>
+  state; // Team1: ballX, ballY, paddleY, paddleAngle, stateL, stateR + Team2: ballX, ballY, paddleY, paddleAngle, stateL, stateR
+
+  PhysicsSnapshot({required this.timestamp, required this.state});
+}
 
 /// A provider for tracking game time with countdown functionality.
 class TimeProvider extends ChangeNotifier with Resetable {
@@ -72,26 +108,37 @@ class RiseTogetherGame extends Forge2DGame
         SingleGameInstance,
         AppLogging,
         AppSettings,
-        Resetable,
-        TeamProvider {
+        Resetable {
   final int nTeams = 2;
   late final RouterComponent router;
   final TimeProvider timeProvider = TimeProvider();
   final TournamentManager tournamentManager = TournamentManager();
   final DistanceTracker distanceTracker = DistanceTracker();
-  final PlayerContext _playerContext = PlayerContext();
+  // final PlayerContext _playerContext = PlayerContext();
 
   // Action provider injected from app - abstracts networking
   ActionProvider? _actionProvider;
   bool get isConfigured => _actionProvider != null;
+
+  // Cached player bitflags mapping to avoid recalculation
+  Map<String, int>? _cachedPlayerBitflags;
+  int? _cachedPlayerCount;
+
+  // Notifier for bitflag changes (for UI reactivity)
+  final BitflagsNotifier _bitflagsNotifier = BitflagsNotifier();
+
+  // Authoritative physics support
+  bool _isAuthoritativePhysics = false;
+  final Queue<PhysicsSnapshot> _stateBuffer = Queue<PhysicsSnapshot>();
+  static const int STATE_BUFFER_SIZE = 3; // Keep 3 frames for interpolation
 
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
   final List<WorldController> worldControllers = [];
   final List<Paddle> paddles = [];
 
-  @override
-  PlayerContext? get playerContext => _playerContext;
+  // @override
+  // PlayerContext get playerContext => _playerContext;
 
   ActionStreamManager get actionManager => _actionProvider!.actionManager;
 
@@ -110,14 +157,46 @@ class RiseTogetherGame extends Forge2DGame
     if (_actionProvider != null) {
       _actionProvider!.dispose();
     }
-
     _actionProvider = actionProvider;
+
+    // Invalidate cached bitflags when changing providers
+    _cachedPlayerBitflags = null;
+    _cachedPlayerCount = null;
+
+    // Initialize bitflag notifier
+    _bitflagsNotifier.clear();
+
     await _actionProvider!.initialize();
+
+    // Determine if this instance is authoritative for physics
+    _isAuthoritativePhysics = actionProvider.isCoordinator;
+    appLog.info(
+      'Physics mode: ${_isAuthoritativePhysics ? "Authoritative" : "Follower"}',
+    );
+    appLog.info(
+      'Game role - isCoordinator: ${actionProvider.isCoordinator}, deviceId: ${(actionProvider is NetworkActionProvider) ? actionProvider.networkCoordinator.deviceId : 'local'}',
+    );
+
     await _initializeActionSystem();
 
     // Load game configuration from network coordinator if available
     if (actionProvider is NetworkActionProvider) {
       _loadNetworkConfiguration(actionProvider.networkCoordinator);
+
+      if (!_isAuthoritativePhysics) {
+        // Set up callback to receive physics state when stream is ready
+        appLog.info('Setting up physics reception for follower');
+        actionProvider.networkCoordinator.setOnPhysicsDataReceivedCallback((
+          data,
+        ) {
+          _handleIncomingPhysicsState(data);
+        });
+        appLog.info('Physics stream ready callback set up for follower');
+      } else {
+        // Set up physics state provider for coordinator
+        appLog.info('Setting up physics state provider for coordinator');
+        _setupPhysicsStateProvider(actionProvider.networkCoordinator);
+      }
     } else {
       appLog.info('Using local configuration for local action provider');
     }
@@ -132,6 +211,15 @@ class RiseTogetherGame extends Forge2DGame
     }
 
     await _actionProvider!.startGameplay();
+
+    // Start physics state broadcasting if this is the coordinator
+    if (_isAuthoritativePhysics && _actionProvider is NetworkActionProvider) {
+      final coordinator =
+          (_actionProvider as NetworkActionProvider).networkCoordinator;
+      await coordinator.startPhysicsStateBroadcast();
+      appLog.info('Physics state broadcasting started for coordinator');
+    }
+
     resumeEngine();
     appLog.info('Game started');
   }
@@ -139,6 +227,14 @@ class RiseTogetherGame extends Forge2DGame
   /// Stop the game (can only be called by coordinator)
   Future<void> stopGame() async {
     if (!isConfigured) return;
+
+    // Stop physics state broadcasting if this is the coordinator
+    if (_isAuthoritativePhysics && _actionProvider is NetworkActionProvider) {
+      final coordinator =
+          (_actionProvider as NetworkActionProvider).networkCoordinator;
+      coordinator.stopPhysicsStateBroadcast();
+      appLog.info('Physics state broadcasting stopped for coordinator');
+    }
 
     await _actionProvider!.stopGameplay();
     pauseEngine();
@@ -198,6 +294,162 @@ class RiseTogetherGame extends Forge2DGame
     return actualTeamId; // Fallback
   }
 
+  /// Get all players sorted by team then alphabetically with their bitflag values
+  /// Returns a list of maps with nodeId, teamId, playerId, and bitflagValue (2^index)
+  List<Map<String, dynamic>> getAllPlayersBitflags() {
+    if (!isConfigured || _actionProvider is! NetworkActionProvider) {
+      return [];
+    }
+
+    final networkProvider = _actionProvider as NetworkActionProvider;
+    final allPlayers = networkProvider.networkCoordinator.playerAssignments;
+
+    // Sort players: first by team, then alphabetically by nodeId
+    final sortedPlayers = List<PlayerAssignment>.from(allPlayers);
+    sortedPlayers.sort((a, b) {
+      // First sort by team
+      final teamComparison = a.teamId.compareTo(b.teamId);
+      if (teamComparison != 0) return teamComparison;
+
+      // Then sort alphabetically by nodeId
+      return a.nodeId.compareTo(b.nodeId);
+    });
+
+    // Create bitflag mapping
+    final result = <Map<String, dynamic>>[];
+    for (int i = 0; i < sortedPlayers.length; i++) {
+      final player = sortedPlayers[i];
+      result.add({
+        'nodeId': player.nodeId,
+        'teamId': player.teamId,
+        'playerId': player.playerId,
+        'bitflagValue': 1 << i, // 2^i
+        'index': i,
+      });
+    }
+
+    return result;
+  }
+
+  /// Get bitflag value for current device/player
+  int? getCurrentPlayerBitflag() {
+    final allPlayers = getAllPlayersBitflags();
+    final currentAssignment = currentPlayerAssignment;
+
+    if (currentAssignment == null) return null;
+
+    for (final player in allPlayers) {
+      if (player['nodeId'] == currentAssignment.nodeId) {
+        return player['bitflagValue'] as int;
+      }
+    }
+
+    return null;
+  }
+
+  /// Update current bitflags from local team streams (for coordinator)
+  void _updateCurrentBitflags() {
+    if (!_isAuthoritativePhysics) return;
+
+    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
+      final actualTeamId = getActualTeamId(displayIndex);
+      final teamStream = actionManager.getTeamStream(actualTeamId);
+      final thrust = teamStream?.getCurrentThrust();
+
+      if (thrust != null) {
+        final prevLeft = _bitflagsNotifier.getLeftBitflags(actualTeamId);
+        final prevRight = _bitflagsNotifier.getRightBitflags(actualTeamId);
+
+        // Update bitflags in notifier (will notify if changed)
+        _bitflagsNotifier.updateBitflags(
+          actualTeamId,
+          thrust.leftBitflags,
+          thrust.rightBitflags,
+        );
+
+        if (thrust.leftBitflags != prevLeft ||
+            thrust.rightBitflags != prevRight) {
+          appLog.info(
+            'Coordinator bitflags updated - Team $actualTeamId: Left=${thrust.leftBitflags}, Right=${thrust.rightBitflags}',
+          );
+        }
+      }
+    }
+  }
+
+  /// Get player bitflags mapping by playerId (for action system)
+  Map<String, int> _getPlayerBitflagsMap() {
+    if (!isConfigured || _actionProvider is! NetworkActionProvider) {
+      return {};
+    }
+
+    final networkProvider = _actionProvider as NetworkActionProvider;
+    final playerCount =
+        networkProvider.networkCoordinator.playerAssignments.length;
+
+    // Check cache validity
+    if (_cachedPlayerBitflags != null && _cachedPlayerCount == playerCount) {
+      return _cachedPlayerBitflags!;
+    }
+
+    // Recalculate and cache
+    final allPlayers = getAllPlayersBitflags();
+    final result = <String, int>{};
+
+    for (final player in allPlayers) {
+      final playerId = player['playerId'] as String;
+      final nodeId = player['nodeId'] as String;
+      final bitflagValue = player['bitflagValue'] as int;
+
+      // Map both playerId and nodeId to the same bitflag value
+      // because different parts of the system use different IDs
+      result[playerId] = bitflagValue;
+      result[nodeId] = bitflagValue;
+
+      // Also add potential transformed remote player IDs
+      // The network system might transform player IDs
+      if (!nodeId.startsWith('remote_player_')) {
+        // Try to map any remote_player_* variations
+        result['remote_player_${nodeId.hashCode.abs()}'] = bitflagValue;
+      }
+
+      // Debug logging
+      appLog.info(
+        'Player bitflag mapping: nodeId=$nodeId, playerId=$playerId, bitflag=$bitflagValue',
+      );
+    }
+
+    _cachedPlayerBitflags = result;
+    _cachedPlayerCount = playerCount;
+    return result;
+  }
+
+  /// Get current left input bitflags for a team (for visual indicators)
+  int getTeamLeftBitflags(int teamId) =>
+      _bitflagsNotifier.getLeftBitflags(teamId);
+
+  /// Get current right input bitflags for a team (for visual indicators)
+  int getTeamRightBitflags(int teamId) =>
+      _bitflagsNotifier.getRightBitflags(teamId);
+
+  /// Get notifier for bitflag changes (for UI reactivity)
+  BitflagsNotifier get bitflagsNotifier => _bitflagsNotifier;
+
+  /// Get a distinct color for a player based on their index
+  Color getPlayerColor(int playerIndex) {
+    final colors = [
+      CupertinoColors.systemGreen,
+      CupertinoColors.systemBlue,
+      CupertinoColors.systemRed,
+      CupertinoColors.systemOrange,
+      CupertinoColors.systemPurple,
+      CupertinoColors.systemYellow,
+      CupertinoColors.systemTeal,
+      CupertinoColors.systemPink,
+    ];
+    return colors[playerIndex % colors.length];
+  }
+
   List<Forge2DWorld> _buildWorlds() {
     for (int i = 0; i < nTeams; i++) {
       final world = RiseTogetherWorld(level: level);
@@ -230,26 +482,34 @@ class RiseTogetherGame extends Forge2DGame
   List<CameraComponent> _buildCameras(List<Forge2DWorld> worlds) {
     final viewportSize = alignedVector(longMultiplier: 1 / nTeams);
     final zoomLevel = viewportSize.x / level.horizontalWidth;
-    for (int index = 0; index < worlds.length; index++) {
+    for (int displayIndex = 0; displayIndex < worlds.length; displayIndex++) {
+      // displayIndex 0 = left side (player's team), displayIndex 1 = right side (opponent's team)
+      final isPlayerTeam =
+          displayIndex == 0; // Left side is always player's team
+      final cameraPos = alignedVector(
+        longMultiplier: displayIndex == 0
+            ? 0.0
+            : 0.5, // Left = 0.0, Right = 0.5
+        shortMultiplier: 0.0,
+      );
+
+
       final worldCamera =
           CameraComponent(
-              world: worlds[index],
+              world: worlds[displayIndex],
               viewport: FixedSizeViewport(viewportSize.x, viewportSize.y)
-                ..position = alignedVector(
-                  longMultiplier: index == 0 ? 0.0 : 1 / (index + 1),
-                  shortMultiplier: 0.0,
-                )
+                ..position = cameraPos
                 //..size = Vector2(size.x / 2, size.y)
                 ..addAll([
                   viewportRimGenerator(viewportSize),
-                  if (index == 1)
+                  if (!isPlayerTeam)
                     viewportRimGenerator(viewportSize, overlay: true),
                 ]),
             )
             ..viewfinder.anchor = Anchor.center
             ..viewfinder.zoom = zoomLevel;
       cameras.add(worldCamera);
-      (worlds[index] as RiseTogetherWorld).setWorldCamera(worldCamera);
+      (worlds[displayIndex] as RiseTogetherWorld).setWorldCamera(worldCamera);
     }
     return cameras;
   }
@@ -303,10 +563,17 @@ class RiseTogetherGame extends Forge2DGame
     // Use display-based indexing (0=left/player, 1=right/opponent)
     for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
       final actualTeamId = getActualTeamId(displayIndex);
+      final currentPlayerTeam = currentPlayerAssignment?.teamId;
+
+      appLog.info(
+        'WORLD MAPPING: displayIndex=$displayIndex -> actualTeamId=$actualTeamId (camera pos=${displayIndex == 0 ? "LEFT" : "RIGHT"}) | PlayerTeam=$currentPlayerTeam',
+      );
+
       final teamStream = actionManager.createTeamStream(
         actualTeamId,
-        5,
-      ); // max 5 players per team
+        5, // max 5 players per team
+        getPlayerBitflags: _getPlayerBitflagsMap,
+      );
       final worldController = WorldController(
         world: worlds[displayIndex],
         actionStream: teamStream,
@@ -315,13 +582,31 @@ class RiseTogetherGame extends Forge2DGame
       // Connect paddle if it exists
       if (displayIndex < paddles.length) {
         worldController.setPaddle(paddles[displayIndex]);
-        appLog.fine(
-          'Connected paddle at display position $displayIndex (actual team $actualTeamId) to world controller',
-        );
       }
 
       worldControllers.add(worldController);
       worldController.initialize();
+    }
+
+    // Check if current assignments match the display mapping and swap streams if needed
+    if (currentPlayerAssignment != null) {
+      final playerTeam = currentPlayerAssignment!.teamId;
+      final expectedPlayerDisplayTeam = getActualTeamId(0); // Left should be player's team
+      
+      appLog.info('STREAM MAPPING CHECK: PlayerTeam=$playerTeam, LeftDisplayTeam=$expectedPlayerDisplayTeam');
+      
+      // If player team is not on the left (display index 0), swap the streams
+      if (playerTeam != expectedPlayerDisplayTeam && worldControllers.length >= 2) {
+        appLog.info('SWAPPING STREAMS: Player team $playerTeam should be on left, swapping streams');
+        
+        final stream0 = worldControllers[0].actionStream;
+        final stream1 = worldControllers[1].actionStream;
+        
+        worldControllers[0].setActionStream(stream1);
+        worldControllers[1].setActionStream(stream0);
+        
+        appLog.info('STREAMS SWAPPED: Left now gets team ${stream1.teamId}, Right now gets team ${stream0.teamId}');
+      }
     }
 
     appLog.fine(
@@ -445,35 +730,34 @@ class RiseTogetherGame extends Forge2DGame
 
   @override
   void update(double dt) {
-    super.update(dt);
     if (isGameOver) {
       return;
     }
+
+    // Always run the full engine update for rendering and component lifecycle
+    super.update(dt);
+    if (!_isAuthoritativePhysics) {
+      // reset ball and paddle velocities to zero
+      for (final world in worlds) {
+        world.ball.body.linearVelocity = Vector2.zero();
+        world.ball.body.angularVelocity = 0.0;
+        world.paddle.body.linearVelocity = Vector2.zero();
+        world.paddle.body.angularVelocity = 0.0;
+      }
+      // Non-coordinator: override physics with authoritative state from coordinator
+      _interpolatePhysicsState(dt);
+
+      // Still process local input for prediction
+      _processLocalInputPrediction(dt);
+    } else {
+      // Coordinator: update current bitflags for visual indicators
+      _updateCurrentBitflags();
+    }
+
     timeProvider.updateTime(dt);
 
     // Update distance tracking for each team
-    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
-      if (displayIndex < worlds.length) {
-        final world = worlds[displayIndex];
-        final actualTeamId = getActualTeamId(displayIndex);
-        if (world.ball.isMounted) {
-          final ballHeight = world.ball.position.y;
-          distanceTracker.updateBallPosition(actualTeamId, ballHeight);
-
-          // Update tournament manager with current distances
-          final distance = distanceTracker.getTeamDistance(actualTeamId);
-          tournamentManager.updateTeamDistance(actualTeamId, distance);
-
-          // Debug logging (remove after testing)
-          // final team = Team.fromId(actualTeamId);
-          // if (distance > 0.1) {
-          //   appLog.info(
-          //     'Display $displayIndex (${team.shortName}) - Ball height: $ballHeight, Distance: ${distance.toStringAsFixed(1)}m',
-          //   );
-          // }
-        }
-      }
-    }
+    _updateDistanceTracking();
 
     // Check if level is complete
     if (timeProvider.isComplete && !isGameOver) {
@@ -547,40 +831,48 @@ class RiseTogetherGame extends Forge2DGame
   }
 
   /// Load configuration from network coordinator (for participants)
-  void _loadNetworkConfiguration(NetworkCoordinator networkCoordinator) {
+  void _loadNetworkConfiguration(NetworkCoordinator networkCoordinator) async {
     appLog.info('Loading game configuration from network coordinator');
 
     final config = networkCoordinator.getEffectiveGameConfiguration();
     appLog.info('Received configuration keys: ${config.keys.toList()}');
 
-    // Load game-specific settings from network configuration
+    // Apply configuration groups using the new updateFromMap API
     if (config.containsKey('game')) {
       final gameConfig = config['game'] as Map<String, dynamic>;
+      await appSettings.getGroup('game').updateFromMap(gameConfig);
+      appLog.info('Applied game configuration from network');
+      
+      // Re-initialize components with new settings
+      final levelDuration = appSettings.getDouble('game.level_duration');
+      timeProvider.initialize(levelDuration);
+      
+      final tournamentRounds = appSettings.getInt('game.tournament_rounds');
+      final levelsPerRound = appSettings.getInt('game.levels_per_round');
+      tournamentManager.initialize(tournamentRounds, levelsPerRound);
+      
+      final distanceMultiplier = appSettings.getDouble('game.distance_multiplier');
+      distanceTracker.initialize(distanceMultiplier);
+      
+      appLog.info('Reinitialized game components with network configuration');
+    }
 
-      if (gameConfig.containsKey('level_duration')) {
-        final levelDuration = (gameConfig['level_duration'] as num).toDouble();
-        timeProvider.initialize(levelDuration);
-        appLog.info('Set level duration from network: ${levelDuration}s');
-      }
+    if (config.containsKey('colors')) {
+      final colorsConfig = config['colors'] as Map<String, dynamic>;
+      await appSettings.getGroup('colors').updateFromMap(colorsConfig);
+      appLog.info('Applied colors configuration from network');
+    }
 
-      if (gameConfig.containsKey('tournament_rounds') &&
-          gameConfig.containsKey('levels_per_round')) {
-        final tournamentRounds = gameConfig['tournament_rounds'] as int;
-        final levelsPerRound = gameConfig['levels_per_round'] as int;
-        tournamentManager.initialize(tournamentRounds, levelsPerRound);
-        appLog.info(
-          'Set tournament settings from network: $tournamentRounds rounds, $levelsPerRound levels per round',
-        );
-      }
+    if (config.containsKey('physics')) {
+      final physicsConfig = config['physics'] as Map<String, dynamic>;
+      await appSettings.getGroup('physics').updateFromMap(physicsConfig);
+      appLog.info('Applied physics configuration from network');
+    }
 
-      if (gameConfig.containsKey('distance_multiplier')) {
-        final distanceMultiplier = (gameConfig['distance_multiplier'] as num)
-            .toDouble();
-        distanceTracker.initialize(distanceMultiplier);
-        appLog.info(
-          'Set distance multiplier from network: $distanceMultiplier',
-        );
-      }
+    if (config.containsKey('network')) {
+      final networkConfig = config['network'] as Map<String, dynamic>;
+      await appSettings.getGroup('network').updateFromMap(networkConfig);
+      appLog.info('Applied network configuration from network');
     }
 
     appLog.info('Network configuration loaded successfully');
@@ -616,6 +908,251 @@ class RiseTogetherGame extends Forge2DGame
   /// Public method to reload settings without full reset
   Future<void> reloadSettings() async {
     await _reloadSettings();
+  }
+
+  /// Update distance tracking for all teams
+  void _updateDistanceTracking() {
+    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
+      if (displayIndex < worlds.length) {
+        final world = worlds[displayIndex];
+        final actualTeamId = getActualTeamId(displayIndex);
+        if (world.ball.isMounted) {
+          final ballHeight = world.ball.position.y;
+          distanceTracker.updateBallPosition(actualTeamId, ballHeight);
+
+          // Update tournament manager with current distances
+          final distance = distanceTracker.getTeamDistance(actualTeamId);
+          tournamentManager.updateTeamDistance(actualTeamId, distance);
+        }
+      }
+    }
+  }
+
+  /// Set up physics state provider for coordinator
+  void _setupPhysicsStateProvider(NetworkCoordinator coordinator) {
+    coordinator.setPhysicsStateProvider(_getCurrentPhysicsState);
+    appLog.info('Physics state provider set up for coordinator');
+  }
+
+  /// Get current physics state for broadcasting (coordinator only)
+  List<double>? _getCurrentPhysicsState() {
+    if (!_isAuthoritativePhysics || worlds.length < nTeams) return null;
+
+    final state = <double>[];
+
+    // For each team: ballX, ballY, paddleY, paddleAngle, stateL, stateR
+    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
+      final actualTeamId = getActualTeamId(displayIndex);
+      final world = worlds[displayIndex];
+
+      if (world.ball.isMounted && world.paddle.isMounted) {
+        // Ball position
+        state.add(world.ball.position.x);
+        state.add(world.ball.position.y);
+
+        // Paddle position (only Y, X doesn't change)
+        state.add(world.paddle.position.y);
+
+        // Paddle angle
+        state.add(world.paddle.body.angle);
+
+        // Player input bitflags (converted to float)
+        final teamStream = actionManager.getTeamStream(actualTeamId);
+        final thrust = teamStream?.getCurrentThrust();
+        state.add(
+          (thrust?.leftBitflags ?? 0).toDouble(),
+        ); // stateL (leftBitflags as float)
+        state.add(
+          (thrust?.rightBitflags ?? 0).toDouble(),
+        ); // stateR (rightBitflags as float)
+      } else {
+        // Add default values if components not ready
+        state.addAll([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+      }
+    }
+
+    return state;
+  }
+
+  /// Handle incoming physics state updates
+  void _handleIncomingPhysicsState(List<double> stateData) {
+    if (stateData.length != 12) {
+      appLog.warning('Invalid physics state data length: ${stateData.length}');
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final snapshot = PhysicsSnapshot(timestamp: now, state: stateData);
+
+    _stateBuffer.add(snapshot);
+
+    // Keep buffer size manageable
+    while (_stateBuffer.length > STATE_BUFFER_SIZE) {
+      _stateBuffer.removeFirst();
+    }
+  }
+
+  /// Interpolate physics state for smooth visuals on followers
+  void _interpolatePhysicsState(double dt) {
+    if (_stateBuffer.isEmpty) {
+      appLog.warning(
+        'No physics state data in buffer - participant not receiving updates',
+      );
+      return; // Need at least 1 state
+    }
+
+    // final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+
+    // appLog.info(
+    //   'Now: $now, buffer timestamps: ${_stateBuffer.map((s) => s.timestamp.toStringAsFixed(3)).join(", ")}',
+    // );
+
+    // If we have multiple states, try to interpolate between them
+    // if (_stateBuffer.length >= 2) {
+    //   // Find the two states to interpolate between
+    //   PhysicsSnapshot? previous;
+    //   PhysicsSnapshot? next;
+
+    //   for (final state in _stateBuffer) {
+    //     if (state.timestamp <= now) {
+    //       previous = state;
+    //     } else {
+    //       next = state;
+    //       break;
+    //     }
+    //   }
+
+    //   if (previous != null && next != null) {
+    //     // Calculate interpolation factor
+    //     final alpha =
+    //         (now - previous.timestamp) / (next.timestamp - previous.timestamp);
+    //     final clampedAlpha = alpha.clamp(0.0, 1.0);
+
+    //     // Apply interpolated state to each world
+    //     for (
+    //       int displayIndex = 0;
+    //       displayIndex < nTeams && displayIndex < worlds.length;
+    //       displayIndex++
+    //     ) {
+    //       final world = worlds[displayIndex];
+    //       final stateOffset = displayIndex * 6; // 6 values per team
+
+    //       if (stateOffset + 5 < previous.state.length &&
+    //           stateOffset + 5 < next.state.length &&
+    //           world.ball.isMounted &&
+    //           world.paddle.isMounted) {
+    //         // Interpolate ball position
+    //         final ballX = _lerp(
+    //           previous.state[stateOffset],
+    //           next.state[stateOffset],
+    //           clampedAlpha,
+    //         );
+    //         final ballY = _lerp(
+    //           previous.state[stateOffset + 1],
+    //           next.state[stateOffset + 1],
+    //           clampedAlpha,
+    //         );
+    //         world.ball.setPosition(Vector2(ballX, ballY));
+    //         appLog.info('Set ball position to ($ballX, $ballY)');
+    //         // Interpolate paddle position (only Y)
+    //         final paddleY = _lerp(
+    //           previous.state[stateOffset + 2],
+    //           next.state[stateOffset + 2],
+    //           clampedAlpha,
+    //         );
+    //         world.paddle.setPosition(Vector2(world.paddle.position.x, paddleY));
+    //         appLog.info('Set paddle Y position to $paddleY');
+    //         // Interpolate paddle angle
+    //         final paddleAngle = _lerp(
+    //           previous.state[stateOffset + 3],
+    //           next.state[stateOffset + 3],
+    //           clampedAlpha,
+    //         );
+    //         world.paddle.setAngle(paddleAngle);
+    //       }
+    //     }
+    //   }
+    // } else {
+    // If we only have one state, apply it directly
+    final latestState = _stateBuffer.last;
+
+    // Apply latest state directly to each world
+    for (
+      int displayIndex = 0;
+      displayIndex < nTeams && displayIndex < worlds.length;
+      displayIndex++
+    ) {
+      final world = worlds[displayIndex];
+      final actualTeamId = getActualTeamId(displayIndex);
+      final stateOffset = actualTeamId * 6; // 6 values per team, use actual team ID
+
+      if (stateOffset + 5 < latestState.state.length &&
+          world.ball.isMounted &&
+          world.paddle.isMounted) {
+        // Apply ball position directly
+        final ballX = latestState.state[stateOffset];
+        final ballY = latestState.state[stateOffset + 1];
+        world.ball.setPosition(Vector2(ballX, ballY));
+        //appLog.info('Set ball [NI] position to ($ballX, $ballY)');
+
+        // Apply paddle position (only Y) directly
+        final paddleY = latestState.state[stateOffset + 2];
+        world.paddle.setPosition(Vector2(world.paddle.position.x, paddleY));
+        //appLog.info('Set paddle [NI] Y position to $paddleY');
+
+        // Apply paddle angle directly
+        final paddleAngle = latestState.state[stateOffset + 3];
+        world.paddle.setAngle(paddleAngle);
+
+        // Extract and store input bitflags for visual indicators
+        final leftBitflags = latestState.state[stateOffset + 4]
+            .toInt(); // stateL
+        final rightBitflags = latestState.state[stateOffset + 5]
+            .toInt(); // stateR
+        _bitflagsNotifier.updateBitflags(
+          actualTeamId,
+          leftBitflags,
+          rightBitflags,
+        );
+      }
+    }
+    //}
+  }
+
+  /// Linear interpolation helper
+  // double _lerp(double a, double b, double t) => a + (b - a) * t;
+
+  /// Process local input prediction for responsiveness on followers
+  void _processLocalInputPrediction(double dt) {
+    if (_isAuthoritativePhysics) return; // Only for followers
+
+    final currentAssignment = currentPlayerAssignment;
+    if (currentAssignment == null) return;
+
+    final teamId = currentAssignment.teamId;
+    final displayIndex = getDisplayIndex(teamId);
+
+    if (displayIndex < worldControllers.length) {
+      final teamStream = actionManager.getTeamStream(teamId);
+
+      if (teamStream != null && displayIndex < worlds.length) {
+        // Get current thrust from local inputs
+        final thrust = teamStream.getCurrentThrust();
+        final world = worlds[displayIndex];
+
+        if (world.paddle.isMounted) {
+          // Apply predicted movement locally (will be corrected by authoritative state)
+          final predictedVelocity = Vector2(
+            0,
+            -thrust.leftThrust - thrust.rightThrust,
+          );
+
+          // Apply small prediction offset (much smaller than authoritative physics)
+          world.paddle.body.linearVelocity =
+              predictedVelocity * 0.1; // Reduced impact for prediction
+        }
+      }
+    }
   }
 
   @override

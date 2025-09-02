@@ -6,6 +6,7 @@ import 'package:rise_together/src/services/net/network_config.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/models/player_action.dart';
+import 'package:rise_together/src/settings/app_settings.dart';
 
 /// Player assignment for a node
 class PlayerAssignment {
@@ -42,19 +43,27 @@ class PlayerAssignment {
 }
 
 /// Simplified network coordinator using LSLCoordinationSession
-class NetworkCoordinator extends ChangeNotifier with AppLogging {
+class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   LSLCoordinationSession? _session;
   StreamSubscription? _nodeJoinedSub;
   StreamSubscription? _nodeLeftSub;
   StreamSubscription? _userMessagesSub;
   StreamSubscription? _streamStartSub;
   StreamSubscription? _streamStopSub;
+  StreamSubscription? _streamReadySub;
   LSLDataStream? _gameDataStream;
+  LSLDataStream? _physDataStream;
+  Timer? _statebroadcastTimer;
+  static const int PHYSICS_BROADCAST_RATE = 60; // Hz
+
+  // Physics state provider callback - will be set by the game
+  List<double>? Function()? _gamePhysicsStateProvider;
 
   bool _isInitialized = false;
   bool _networkingEnabled = true;
   bool _gameActive = false;
   bool _gameStarting = false;
+  bool _coordinatedStartInitiated = false;
   String? _deviceId;
   String? _deviceUId;
   String? _deviceName;
@@ -66,6 +75,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
   final Set<String> _readyNodes = {};
   Map<String, dynamic>? _gameConfiguration;
   VoidCallback? _onGameStartCallback;
+  void Function(List<double>)? _onPhysicsDataReceived;
 
   // Game action streaming
   ActionStreamManager? _actionManager;
@@ -84,24 +94,13 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
   List<Node> get connectedNodes => _session?.connectedNodes ?? [];
   List<PlayerAssignment> get playerAssignments =>
       _playerAssignments.values.toList();
-  PlayerAssignment? get currentPlayerAssignment {
-    // Use the node UID from the coordination session, not the local device ID
-    final assignment = deviceUId != null ? _playerAssignments[deviceUId] : null;
-    if (assignment != null) {
-      appLog.fine(
-        'NetworkCoordinator: Current player assignment - Team: ${assignment.teamId}, Player: ${assignment.playerId}, Node: ${assignment.nodeId}',
-      );
-    } else {
-      appLog.warning(
-        'NetworkCoordinator: No current player assignment found for node: $deviceUId',
-      );
-    }
-    return assignment;
-  }
+  PlayerAssignment? get currentPlayerAssignment =>
+      deviceUId != null ? _playerAssignments[deviceUId] : null;
 
   LSLCoordinationSession? get coordinationSession => _session;
   ActionStreamManager? get actionManager => _actionManager;
   Map<String, dynamic>? get gameConfiguration => _gameConfiguration;
+  LSLDataStream? get physicsStateStream => _physDataStream;
 
   /// Initialize with networking enabled/disabled
   Future<void> initialize({bool enableNetworking = true}) async {
@@ -222,17 +221,19 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     if (_session == null) return;
 
     // Listen for node topology changes
-    _nodeJoinedSub = _session!.nodeJoined.listen((node) {
-      appLog.info('Node joined: ${node.name} (${node.uId})');
-      _handleNewPlayerJoining(node);
-      notifyListeners();
-    });
+    if (isCoordinator) {
+      _nodeJoinedSub = _session!.nodeJoined.listen((node) {
+        appLog.info('Node joined: ${node.name} (${node.uId})');
+        _handleNewPlayerJoining(node);
+        notifyListeners();
+      });
 
-    _nodeLeftSub = _session!.nodeLeft.listen((node) {
-      appLog.info('Node left: ${node.name} (${node.uId})');
-      _playerAssignments.remove(node.uId);
-      notifyListeners();
-    });
+      _nodeLeftSub = _session!.nodeLeft.listen((node) {
+        appLog.info('Node left: ${node.name} (${node.uId})');
+        _playerAssignments.remove(node.uId);
+        notifyListeners();
+      });
+    }
 
     // Listen for coordination messages
     _userMessagesSub = _session!.userMessages.listen((message) {
@@ -245,9 +246,32 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       appLog.info('PARTICIPANT: Stream start command: ${command.streamName}');
       if (command.streamName == 'GameData') {
         appLog.info('PARTICIPANT: Setting up game data stream...');
-        await _setupGameDataStream();
+        _gameDataStream = await _session!.getDataStream('GameData');
+        // Participant does not need to subscribe to inbox - coordinator handles that
         appLog.info(
           'PARTICIPANT: Game data stream created - should auto-send streamReady',
+        );
+      } else if (command.streamName == 'PhysicsState') {
+        appLog.info(
+          'PARTICIPANT: Setting up physics state stream reception...',
+        );
+        _physDataStream = await _session!.getDataStream('PhysicsState');
+        appLog.info(
+          'PARTICIPANT: Physics state stream created - should auto-send streamReady',
+        );
+
+        // Set up inbox listener and forward data directly to callback
+        _physDataStream!.inbox.listen((message) {
+          if (_onPhysicsDataReceived != null) {
+            _onPhysicsDataReceived!(message.data.cast<double>());
+          }
+        });
+        appLog.info(
+          'PARTICIPANT: Physics state inbox listener set up - will forward to callback',
+        );
+      } else {
+        appLog.info(
+          'PARTICIPANT: Ignoring stream start for unknown stream: ${command.streamName}',
         );
       }
     });
@@ -255,15 +279,15 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     _streamStopSub = _session!.streamStopCommands.listen((command) {
       appLog.info('Stream stop command: ${command.streamName}');
       if (command.streamName == 'GameData') {
-        _gameDataStream = null;
         _gameActive = false;
         _gameStarting = false;
-        _readyNodes.clear();
       }
     });
 
     // Listen for stream ready notifications
-    _session!.streamReadyNotifications.listen((notification) {
+    _streamReadySub = _session!.streamReadyNotifications.listen((
+      notification,
+    ) async {
       appLog.info(
         'Stream ready from node: ${notification.fromNodeUId} for stream: ${notification.streamName}',
       );
@@ -272,10 +296,18 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       );
 
       if (notification.streamName == 'GameData') {
-        _handleStreamReady(notification.fromNodeUId);
+        appLog.info("GameData stream ready");
+      } else if (notification.streamName == 'PhysicsState') {
+        // Only handle stream ready from participants, not from coordinator itself
+        if (notification.fromNodeUId != _session!.thisNode.uId) {
+          _handleStreamReady(notification.fromNodeUId);
+        }
+        appLog.info(
+          'PhysicsState stream is ready - participant can now receive physics updates',
+        );
       } else {
         appLog.info(
-          'Ignoring stream ready for non-GameData stream: ${notification.streamName}',
+          'Ignoring stream ready for unknown stream: ${notification.streamName}',
         );
       }
     });
@@ -375,6 +407,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
   }
 
   Future<void> _setupGameDataStream() async {
+    if (!isCoordinator) return;
     if (_session == null || _gameDataStream != null) return;
 
     final streamConfig = DataStreamConfig(
@@ -382,7 +415,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       channels: 3, // teamId, actionIndex, playerIdHash
       sampleRate: 120.0,
       dataType: StreamDataType.int32,
-      participationMode: StreamParticipationMode.allNodes,
+      participationMode: StreamParticipationMode.sendAllReceiveCoordinator,
     );
     appLog.info('Creating game data stream...');
     _gameDataStream = await _session!.createDataStream(streamConfig);
@@ -462,8 +495,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       );
       appLog.info('All nodes ready check: $allNodesReady');
 
-      if (allNodesReady) {
+      if (allNodesReady && !_coordinatedStartInitiated) {
         appLog.info('All nodes are ready! Starting coordinated game start.');
+        _coordinatedStartInitiated = true;
         _initiateCoordinatedStart();
       } else {
         // Debug which nodes are missing
@@ -478,7 +512,54 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     notifyListeners();
   }
 
-  void _initiateCoordinatedStart() {
+  Future<void> _setupPhysicsStateStream() async {
+    if (!isCoordinator || _session == null || _physDataStream != null) return;
+
+    final streamConfig = DataStreamConfig(
+      name: 'PhysicsState',
+      channels:
+          12, // Team1: ballX, ballY, paddleY, paddleAngle, stateL, stateR + Team2: ballX, ballY, paddleY, paddleAngle, stateL, stateR
+      sampleRate: PHYSICS_BROADCAST_RATE.toDouble(),
+      dataType: StreamDataType.float32,
+      participationMode: StreamParticipationMode.coordinatorOnly,
+    );
+
+    _physDataStream = await _session!.createDataStream(streamConfig);
+    appLog.info('Physics state stream created for coordinator');
+  }
+
+  void _broadcastPhysicsState() {
+    if (!isCoordinator) {
+      appLog.warning('Physics broadcast called on non-coordinator');
+      return;
+    }
+    if (_physDataStream == null) {
+      appLog.warning('Physics broadcast called but stream is null');
+      return;
+    }
+    if (_gamePhysicsStateProvider == null) {
+      appLog.warning('Physics broadcast called but provider is null');
+      return;
+    }
+
+    // Get current physics state from the game
+    final state = _gamePhysicsStateProvider!();
+    if (state != null) {
+      _physDataStream!.sendData(state);
+      // Debug log occasionally to verify data is being sent
+      // if (DateTime.now().millisecondsSinceEpoch % 1000 < 50) {
+      //   appLog.info(
+      //     'Coordinator sent physics state: ballPos=(${state[0].toStringAsFixed(2)}, ${state[1].toStringAsFixed(2)}), paddleY=${state[2].toStringAsFixed(2)}',
+      //   );
+      // }
+    } else {
+      appLog.warning('Physics state provider returned null');
+    }
+  }
+
+  void _initiateCoordinatedStart() async {
+    await _session!.startStream('GameData');
+    await _session!.startStream('PhysicsState');
     // Schedule game start 5 seconds in the future
     _scheduledStartTime = DateTime.now().add(Duration(seconds: 5));
     _gameStarting = true;
@@ -514,6 +595,11 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     _gameStarting = false;
 
     if (isCoordinator) {
+      // Start broadcasting physics state
+      _statebroadcastTimer = Timer.periodic(
+        Duration(microseconds: (1000000 / PHYSICS_BROADCAST_RATE).round()),
+        (_) => _broadcastPhysicsState(),
+      );
       // Send final start message
       _session!.sendUserMessage('start_game', 'Game started now!', {});
     }
@@ -635,22 +721,32 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
 
   /// Get default game configuration
   Map<String, dynamic> getDefaultGameConfiguration() {
-    return {
-      'game': {
-        'tournament_rounds': 3,
-        'levels_per_round': 2,
-        'level_duration': 120.0, // seconds
-        'distance_multiplier': 10.0,
-        'enable_surveys': false,
-      },
-      'teams': {'team_1_color': 'blue', 'team_2_color': 'orange'},
-      'coordinator': {'device_id': _deviceId, 'device_name': _deviceName},
-      'session': {
-        'session_id': 'rise_together_${DateTime.now().millisecondsSinceEpoch}',
-        'created_at': DateTime.now().toIso8601String(),
-        'networking_enabled': _networkingEnabled,
-      },
+    // Get current settings as base, but override specific values for participants
+    final config = <String, dynamic>{};
+
+    // Export game settings with debug_mode disabled for participants
+    final gameSettings = appSettings.getGroup('game').toMap();
+    gameSettings['debug_mode'] = false; // Disable DEMO MODE for participants
+    config['game'] = gameSettings;
+
+    // Export colors and physics settings as-is
+    config['colors'] = appSettings.getGroup('colors').toMap();
+    config['physics'] = appSettings.getGroup('physics').toMap();
+    config['network'] = appSettings.getGroup('network').toMap();
+
+    // Add coordinator-specific info (device info from device group)
+    final deviceSettings = appSettings.getGroup('device').toMap();
+    config['coordinator'] = {
+      'device_id': deviceSettings['device_id'] ?? _deviceId,
+      'device_name': deviceSettings['device_name'] ?? _deviceName,
     };
+    config['session'] = {
+      'session_id': 'rise_together_${DateTime.now().millisecondsSinceEpoch}',
+      'created_at': DateTime.now().toIso8601String(),
+      'networking_enabled': _networkingEnabled,
+    };
+
+    return config;
   }
 
   /// Send a game action over the network using the game data stream
@@ -709,18 +805,18 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
       validateSync();
     }
 
+    _gameStarting = true;
+    _coordinatedStartInitiated = false;
+    _readyNodes.clear();
+
     // Create and start the game data stream
     if (_gameDataStream == null) {
       await _setupGameDataStream();
     }
 
-    await _session!.startStream('GameData');
-    appLog.info(
-      'Game data stream started, waiting for all nodes to be ready...',
-    );
-
-    _gameStarting = true;
-    _readyNodes.clear();
+    if (_physDataStream == null) {
+      await _setupPhysicsStateStream();
+    }
 
     // Add coordinator as ready immediately
     _readyNodes.add(_session!.thisNode.uId);
@@ -737,6 +833,8 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     // Check if we're the only node (single player or web)
     if (connectedNodes.length <= 1) {
       appLog.info('Single player mode - starting immediately');
+      _session!.startStream('GameData');
+      _session!.startStream('PhysicsState');
       _actuallyStartGame();
     } else {
       appLog.info(
@@ -766,6 +864,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     if (isCoordinator) {
       // Coordinator stops the game data stream and notifies participants
       await _session!.stopStream('GameData');
+      await _session!.stopStream('PhysicsState');
       await _session!.sendUserMessage(
         'stop_game',
         'Game stopped by coordinator',
@@ -847,6 +946,42 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     _onGameStartCallback = callback;
   }
 
+  /// Set callback to be called when physics data is received (participant only)
+  void setOnPhysicsDataReceivedCallback(void Function(List<double>) callback) {
+    _onPhysicsDataReceived = callback;
+  }
+
+  /// Set the physics state provider callback (coordinator only)
+  void setPhysicsStateProvider(List<double>? Function() provider) {
+    if (!isCoordinator) {
+      appLog.warning('Only coordinator can set physics state provider');
+      return;
+    }
+    _gamePhysicsStateProvider = provider;
+    appLog.info('Physics state provider set for coordinator');
+  }
+
+  /// Start physics state broadcasting (coordinator only)
+  Future<void> startPhysicsStateBroadcast() async {
+    if (!isCoordinator) {
+      appLog.warning('Only coordinator can start physics state broadcast');
+      return;
+    }
+
+    if (_physDataStream == null) {
+      await _setupPhysicsStateStream();
+    }
+
+    appLog.info('Physics state broadcast started');
+  }
+
+  /// Stop physics state broadcasting
+  void stopPhysicsStateBroadcast() {
+    _statebroadcastTimer?.cancel();
+    _statebroadcastTimer = null;
+    appLog.info('Physics state broadcast stopped');
+  }
+
   /// Wait for nodes to join
   Future<List<Node>> waitForNodes(int minNodes, {Duration? timeout}) async {
     if (!_networkingEnabled || _session == null) {
@@ -874,7 +1009,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging {
     _nodeLeftSub?.cancel();
     _userMessagesSub?.cancel();
     _streamStartSub?.cancel();
+    _streamReadySub?.cancel();
     _streamStopSub?.cancel();
+    _statebroadcastTimer?.cancel();
     _actionManager?.dispose();
     _session?.dispose();
     _isInitialized = false;

@@ -69,7 +69,7 @@ mixin class AppSettings {
           ],
         ),
         GroupConfig(
-          key: 'network',
+          key: 'device',
           items: [
             /// Persistent device ID for network coordination
             StringSetting(key: 'device_id', defaultValue: ''),
@@ -78,7 +78,11 @@ mixin class AppSettings {
             StringSetting(key: 'device_name', defaultValue: ''),
 
             StringSetting(key: 'device_uid', defaultValue: ''),
-
+          ],
+        ),
+        GroupConfig(
+          key: 'network',
+          items: [
             /// Whether to use local network mode (true) or network coordination (false)
             BoolSetting(key: 'use_local_network', defaultValue: false),
 

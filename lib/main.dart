@@ -142,14 +142,37 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
       appLog.info('Game configured for participant');
     }
 
-    // Start the game engine
-    game.startGame();
+    // Always start the game engine components when this callback is triggered
+    // This includes resumeEngine() and physics broadcasting
+    await _startGameEngine();
 
     // Remove the main menu overlay
     game.overlays.remove('MainMenu');
 
     // Add the in-game UI overlay
     game.overlays.add('inGameUI');
+  }
+
+  /// Start the core game engine components
+  Future<void> _startGameEngine() async {
+    if (!game.isConfigured) {
+      appLog.warning('Cannot start game engine - game not configured');
+      return;
+    }
+
+    // Start physics state broadcasting if this is the coordinator
+    if (_actionProvider is NetworkActionProvider) {
+      final coordinator =
+          (_actionProvider as NetworkActionProvider).networkCoordinator;
+      if (coordinator.isCoordinator) {
+        await coordinator.startPhysicsStateBroadcast();
+        appLog.info('Physics state broadcasting started for coordinator');
+      }
+    }
+
+    // Start the game engine
+    game.resumeEngine();
+    appLog.info('Game engine started');
   }
 
   @override
