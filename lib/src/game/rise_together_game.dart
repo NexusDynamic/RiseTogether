@@ -428,6 +428,49 @@ class RiseTogetherGame extends Forge2DGame
   int getTeamRightBitflags(int teamId) =>
       _bitflagsNotifier.getRightBitflags(teamId);
 
+  /// Clear all player actions for a specific team (when ball hits wall)
+  void clearTeamActions(RiseTogetherWorld world) {
+    print('clearTeamActions called!');
+    if (!isConfigured) return;
+
+    // Find which display index this world belongs to
+    final displayIndex = worlds.indexOf(world);
+    if (displayIndex == -1) {
+      appLog.warning('Could not find world in worlds list for action clearing');
+      return;
+    }
+
+    final actualTeamId = getActualTeamId(displayIndex);
+    print(
+      'Clearing actions for team $actualTeamId (displayIndex: $displayIndex)',
+    );
+    appLog.info(
+      'Clearing actions for team $actualTeamId (displayIndex: $displayIndex)',
+    );
+
+    // Clear actions for the affected team
+    if (isCoordinator && _actionProvider is NetworkActionProvider) {
+      final networkProvider = _actionProvider as NetworkActionProvider;
+      final playerAssignments =
+          networkProvider.networkCoordinator.playerAssignments;
+
+      // First clear the local action stream for this team
+      final teamStream = actionManager.getTeamStream(actualTeamId);
+      teamStream?.clearAllActions();
+
+      // Then send "none" action to participants on this team
+      for (final assignment in playerAssignments) {
+        if (assignment.teamId == actualTeamId && !assignment.isCoordinator) {
+          sendAction(actualTeamId, assignment.playerId, PaddleAction.none);
+        }
+      }
+    } else if (_actionProvider is LocalActionProvider) {
+      // For local mode, clear actions directly
+      final teamStream = actionManager.getTeamStream(actualTeamId);
+      teamStream?.clearAllActions();
+    }
+  }
+
   /// Get notifier for bitflag changes (for UI reactivity)
   BitflagsNotifier get bitflagsNotifier => _bitflagsNotifier;
 
@@ -585,9 +628,20 @@ class RiseTogetherGame extends Forge2DGame
         5, // max 5 players per team
         getPlayerBitflags: _getPlayerBitflagsMap,
       );
+      // Get configured team player count (defaults to 5 if not configured)
+      final configuredPlayerCount = _teamPlayerCounts != null
+          ? _teamPlayerCounts![actualTeamId.toString()] ?? 5
+          : 5;
+
+      // Set the configured team player count for proper thrust calculation
+      teamStream.setConfiguredTeamPlayerCount(configuredPlayerCount);
+
       final worldController = WorldController(
         world: worlds[displayIndex],
         actionStream: teamStream,
+        shouldUpdateParallax:
+            _isAuthoritativePhysics, // Only coordinator updates parallax via WorldController
+        configuredTeamPlayerCount: configuredPlayerCount,
       );
 
       // Connect paddle if it exists
@@ -889,13 +943,28 @@ class RiseTogetherGame extends Forge2DGame
     if (config.containsKey('teams')) {
       _teamPlayerCounts = Map<String, int>.from(config['teams']);
       appLog.info('Received team player counts: $_teamPlayerCounts');
+
+      // Update existing TeamActionStreams with correct team player counts
+      for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
+        final actualTeamId = getActualTeamId(displayIndex);
+        final configuredPlayerCount =
+            _teamPlayerCounts![actualTeamId.toString()] ?? 5;
+        final teamStream = actionManager.getTeamStream(actualTeamId);
+        teamStream?.setConfiguredTeamPlayerCount(configuredPlayerCount);
+
+        // Also update WorldController if it exists
+        if (displayIndex < worldControllers.length) {
+          // Note: WorldController configuredTeamPlayerCount is final, can't update
+          // This is why we need to recreate them or use the ActionStream approach
+        }
+      }
     }
 
     if (config.containsKey('physics')) {
       final physicsConfig = config['physics'] as Map<String, dynamic>;
       await appSettings.getGroup('physics').updateFromMap(physicsConfig);
       appLog.info('Applied physics configuration from network');
-      
+
       // Recreate paddles with updated physics settings (e.g., paddle width multiplier)
       await _addPaddles(force: true);
       appLog.info('Recreated paddles with updated physics settings');
@@ -1158,15 +1227,15 @@ class RiseTogetherGame extends Forge2DGame
           rightBitflags,
         );
 
-        // Update parallax background for participants using same calculation as coordinator
+        // Update parallax background for participants using proportional thrust
         if (!_isAuthoritativePhysics && _teamPlayerCounts != null) {
           final leftPlayerCount = _countSetBits(leftBitflags);
           final rightPlayerCount = _countSetBits(rightBitflags);
           final teamPlayerCount =
               _teamPlayerCounts![actualTeamId.toString()] ?? 5;
           final thrustPerPlayer = 1.0 / teamPlayerCount;
-          
-          // Use same calculation as TeamThrust: leftThrust + rightThrust
+
+          // Calculate proportional thrust: same as coordinator logic
           final leftThrust = leftPlayerCount * thrustPerPlayer;
           final rightThrust = rightPlayerCount * thrustPerPlayer;
           final totalThrust = leftThrust + rightThrust;

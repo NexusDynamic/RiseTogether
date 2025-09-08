@@ -12,8 +12,15 @@ class WorldController with AppLogging {
   TeamActionStream actionStream;
   late StreamSubscription<TeamThrust> _thrustSubscription;
   Paddle? _paddle;
+  final bool shouldUpdateParallax;
+  final int configuredTeamPlayerCount;
 
-  WorldController({required this.world, required this.actionStream});
+  WorldController({
+    required this.world, 
+    required this.actionStream,
+    this.shouldUpdateParallax = true,
+    required this.configuredTeamPlayerCount,
+  });
 
   void initialize() {
     appLog.fine('Initializing WorldController for team ${actionStream.teamId}');
@@ -53,7 +60,13 @@ class WorldController with AppLogging {
       thrust.leftThrust,
       thrust.rightThrust,
     );
-    world.parallax.parallax!.baseVelocity.setFrom(Vector2(0, -totalThrust));
+    
+    // Only update parallax if this controller should handle it (coordinator only)
+    if (shouldUpdateParallax) {
+      // Use the corrected thrust values from TeamActionStream (which now uses configured team size)
+      world.parallax.parallax!.baseVelocity.setFrom(Vector2(0, -totalThrust));
+      print('WorldController team ${actionStream.teamId}: totalThrust=$totalThrust (from TeamActionStream)');
+    }
     appLog.finest('Updated paddle thrust: ${thrust.toString()}');
   }
 

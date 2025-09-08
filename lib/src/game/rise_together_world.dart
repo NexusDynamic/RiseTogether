@@ -73,6 +73,9 @@ class RiseTogetherWorld extends Forge2DWorld
       'Restarting level with horizontal width: ${level.horizontalWidth}.',
     );
 
+    // Clear all player actions for this team when ball hits wall
+    game.clearTeamActions(this);
+
     // Reset ball and paddle to starting positions (world components - reused)
     ball.setPosition(Vector2(0.0, -1));
     ball.stopMovement();

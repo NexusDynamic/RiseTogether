@@ -18,11 +18,19 @@ class TeamActionStream {
   Stream<TeamThrust> get thrustStream =>
       _controller.stream.map((_) => _calculateThrust());
 
+  // Configured team player count (for proper thrust calculation)
+  int? _configuredTeamPlayerCount;
+
   TeamActionStream({
     required this.teamId,
     required this.maxPlayers,
     Map<String, int> Function()? getPlayerBitflags,
   }) : _getPlayerBitflags = getPlayerBitflags;
+
+  /// Set the configured team player count for proper thrust calculation
+  void setConfiguredTeamPlayerCount(int count) {
+    _configuredTeamPlayerCount = count;
+  }
 
   void addAction(GameAction action) {
     _currentActions[action.playerId] = action.action;
@@ -34,6 +42,22 @@ class TeamActionStream {
     _controller.add(GameAction(playerId, PaddleAction.none));
   }
 
+  /// Clear all current actions for all players (used when ball hits wall)
+  void clearAllActions() {
+    final playerIds = _currentActions.keys.toList();
+    print(
+      'TeamActionStream: Clearing actions for team $teamId, players: $playerIds',
+    );
+    for (final playerId in playerIds) {
+      final previousAction = _currentActions[playerId];
+      _currentActions[playerId] = PaddleAction.none;
+      _controller.add(GameAction(playerId, PaddleAction.none));
+      print(
+        'TeamActionStream: Cleared $playerId: $previousAction -> PaddleAction.none',
+      );
+    }
+  }
+
   TeamThrust _calculateThrust() {
     final leftCount = _currentActions.values
         .where((a) => a == PaddleAction.left)
@@ -43,7 +67,9 @@ class TeamActionStream {
         .length;
     final activeCount = leftCount + rightCount;
 
-    final thrustPerPlayer = 1.0 / maxPlayers;
+    // Use configured team size if available, otherwise fall back to current team size
+    final teamSize = _configuredTeamPlayerCount ?? _currentActions.keys.length;
+    final thrustPerPlayer = teamSize > 0 ? 1.0 / teamSize : 0.0;
 
     // Calculate bitflags for left and right inputs
     int leftBitflags = 0;

@@ -33,6 +33,20 @@ class SimulatedPlayerController extends ChangeNotifier {
     }
   }
 
+  /// Clear all player actions and return list of affected players (for sending NONE actions)
+  List<String> clearAllPlayerActionsAndGetAffected() {
+    final affectedPlayers = _activeActions.keys
+        .where((playerId) => _activeActions[playerId] != PaddleAction.none)
+        .toList();
+    
+    if (_activeActions.isNotEmpty) {
+      _activeActions.clear();
+      notifyListeners();
+    }
+    
+    return affectedPlayers;
+  }
+
   bool isPlayerActionActive(String playerId, PaddleAction action) {
     return _activeActions[playerId] == action;
   }
@@ -47,6 +61,25 @@ class InGameUI extends StatelessWidget
       SimulatedPlayerController();
 
   InGameUI(this.game, {super.key});
+
+  /// Clear UI button states for current player when ball hits wall
+  void clearCurrentPlayerUIActions() {
+    final currentAssignment = game.currentPlayerAssignment;
+    if (currentAssignment == null) return;
+
+    final playerId = currentAssignment.playerId;
+    final teamId = currentAssignment.teamId;
+
+    // Get affected players from UI controller and send NONE actions
+    final affectedPlayers = _simulatedController.clearAllPlayerActionsAndGetAffected();
+    
+    // Send NONE actions for any buttons that were pressed
+    for (final affectedPlayerId in affectedPlayers) {
+      if (affectedPlayerId == playerId) {
+        _sendAction(teamId, playerId, PaddleAction.none);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

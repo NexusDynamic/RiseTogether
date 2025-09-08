@@ -319,6 +319,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
         if (!isCoordinator) {
           final assignmentsData =
               message.payload['assignments'] as Map<String, dynamic>?;
+          final teamCountsData =
+              message.payload['team_counts'] as Map<String, dynamic>?;
+              
           if (assignmentsData != null) {
             _playerAssignments.clear();
             for (final entry in assignmentsData.entries) {
@@ -329,6 +332,14 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
             appLog.info(
               'Received player assignments: ${_playerAssignments.length} assignments',
             );
+            
+            // Store team player counts for game configuration
+            if (teamCountsData != null) {
+              final currentConfig = _gameConfiguration ?? <String, dynamic>{};
+              currentConfig['teams'] = Map<String, int>.from(teamCountsData);
+              _gameConfiguration = currentConfig;
+              appLog.info('Updated team player counts: $teamCountsData');
+            }
             // Log each assignment for verification
             _playerAssignments.forEach((nodeId, assignment) {
               appLog.info(
@@ -704,8 +715,16 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   void _broadcastAssignments() {
     if (!isCoordinator || _session == null) return;
 
+    // Calculate team player counts
+    final teamCounts = <String, int>{};
+    for (final assignment in _playerAssignments.values) {
+      final teamKey = assignment.teamId.toString();
+      teamCounts[teamKey] = (teamCounts[teamKey] ?? 0) + 1;
+    }
+
     final assignmentData = {
       'assignments': _playerAssignments.map((k, v) => MapEntry(k, v.toMap())),
+      'team_counts': teamCounts,
     };
 
     _session!.sendUserMessage(
@@ -714,9 +733,15 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       assignmentData,
     );
 
+    // Also update coordinator's own game configuration with team counts
+    final currentConfig = _gameConfiguration ?? <String, dynamic>{};
+    currentConfig['teams'] = teamCounts;
+    _gameConfiguration = currentConfig;
+    
     appLog.info(
       'Broadcasted player assignments to ${connectedNodes.length} participants',
     );
+    appLog.info('Updated coordinator team player counts: $teamCounts');
 
     // Log assignments being sent for verification
     _playerAssignments.forEach((nodeId, assignment) {
