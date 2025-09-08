@@ -15,6 +15,7 @@ import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/services/network_coordinator.dart';
 import 'package:rise_together/src/game/action_provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:flutter/services.dart';
 
 class AnyInputScrollBehavior extends CupertinoScrollBehavior {
   // Override behavior methods and getters like dragDevices
@@ -37,7 +38,7 @@ class RiseTogetherApp extends StatefulWidget with AppSettings {
 
 class _RiseTogetherAppState extends State<RiseTogetherApp>
     with AppLogging, AppSettings {
-  late final NetworkCoordinator networkCoordinator;
+  final NetworkCoordinator networkCoordinator = NetworkCoordinator();
   late final RiseTogetherGame game;
   ActionProvider? _actionProvider;
 
@@ -49,18 +50,13 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
       'build ${RiseTogetherPackageInfo.buildNumber})',
     );
     game = RiseTogetherGame();
-    initSettings().then((_) {
-      networkCoordinator = NetworkCoordinator();
-
-      // Initialize coordination layer early (app level)
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _initializeCoordination();
-      });
-    });
+    _initializeCoordination();
   }
 
   Future<void> _initializeCoordination() async {
     try {
+      await initSettings();
+
       appLog.info('Starting coordination initialization...');
       await networkCoordinator.initialize();
       appLog.info('Coordination initialization completed successfully');
@@ -175,6 +171,11 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
     appLog.info('Game engine started');
   }
 
+  /// Log app data (high-frequency data that bypasses console)
+  void logAppData(String event, Map<String, dynamic> data) {
+    appLog.logData('app_data', event, data: data);
+  }
+
   @override
   void dispose() {
     _actionProvider?.dispose();
@@ -215,8 +216,27 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
 }
 
 void main() async {
-  final _ = LogService();
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize enhanced logging system and ensure it's complete before continuing
+  final logService = LogService();
+  await logService.initializeCompleteLogging(
+    appLogDestination: LogDestination.both, // Console + File for app logs
+    dataLoggers: ['app_data'], // File only for app data
+    dataLogFormat: 'tsv',
+  );
+  
+  // Double-check that initialization is complete
+  await logService.ensureInitialized();
+  
+  // Debug: Print logging status
+  final status = logService.getLoggingStatus();
+  print('DEBUG - Logging status: $status');
+
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   RiseTogetherPackageInfo().init(packageInfo);
   runApp(

@@ -157,8 +157,8 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
         ),
         transportConfig: LSLTransportConfig(
           lslApiConfig: LSLApiConfig(
-            ipv6: IPv6Mode.disable,
-            logLevel: 2,
+            // ipv6: IPv6Mode.disable,
+            logLevel: -2,
             portRange: 1024,
           ),
           coordinationFrequency: 50.0,
@@ -379,9 +379,6 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
           _gameStarting = false;
 
           appLog.info('PARTICIPANT: Triggering UI transition callback');
-          appLog.info(
-            'PARTICIPANT: Callback is null: ${_onGameStartCallback == null}',
-          );
 
           // Trigger UI transition callback for participant
           _onGameStartCallback?.call();
@@ -422,22 +419,49 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
     // Listen for incoming game actions
     _gameDataStream!.inbox.listen((message) {
-      if (!_gameActive || _actionManager == null) return;
+      if (!_gameActive || _actionManager == null) {
+        return;
+      }
 
       try {
-        final teamId = message.data[0] as int;
-        final actionIndex = message.data[1] as int;
-        final playerIdHash = message.data[2] as int;
+        message = message as Int32Message;
+        final teamId = message.data[0];
+        final actionIndex = message.data[1];
+        final playerIdHash = message.data[2];
 
         if (actionIndex >= 0 && actionIndex < PaddleAction.values.length) {
           final action = PaddleAction.values[actionIndex];
           final playerId = 'remote_player_$playerIdHash';
 
           final teamStream = _actionManager!.getTeamStream(teamId);
-          teamStream?.addAction(GameAction(playerId, action));
+          if (teamStream != null) {
+            teamStream.addAction(GameAction(playerId, action));
+          } else {}
 
-          appLog.finest(
-            'Received network action: team=$teamId, player=$playerId, action=$action',
+          appLog.logData(
+            'app_data',
+            'GAME_ACTION_RECEIVED',
+            data: {
+              'inlet_timestamp': message.timestamp,
+              'lsl_timestamp': message.getMetadata(
+                'lsl_timestamp',
+                defaultValue: null,
+              ),
+              'processed_timestamp': message.getMetadata(
+                'received_at',
+                defaultValue: null,
+              ),
+              'lsl_time_correction': message.getMetadata(
+                'lsl_time_correction',
+                defaultValue: null,
+              ),
+              'team_id': teamId,
+              'action_index': actionIndex,
+              'player_id_hash': playerIdHash,
+              'action': action.toString(),
+              'player_id': playerId,
+            },
+            timestamp: DateTime.now(),
           );
         }
       } catch (e) {
@@ -518,7 +542,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     final streamConfig = DataStreamConfig(
       name: 'PhysicsState',
       channels:
-          12, // Team1: ballX, ballY, paddleY, paddleAngle, stateL, stateR + Team2: ballX, ballY, paddleY, paddleAngle, stateL, stateR
+          14, // Team1: ballX, ballY, paddleY, paddleAngle, stateL, stateR + Team2: ballX, ballY, paddleY, paddleAngle, stateL, stateR
       sampleRate: PHYSICS_BROADCAST_RATE.toDouble(),
       dataType: StreamDataType.float32,
       participationMode: StreamParticipationMode.coordinatorOnly,
@@ -605,12 +629,10 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     }
 
     appLog.info('Game has started! Triggering UI transition.');
-    appLog.info('Callback is null: ${_onGameStartCallback == null}');
 
     // Trigger UI transition callback
     _onGameStartCallback?.call();
 
-    appLog.info('UI transition callback called');
     notifyListeners();
   }
 
@@ -655,6 +677,28 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       _broadcastAssignments();
     }
     notifyListeners();
+  }
+
+  /// Unassign a node from any team (coordinator only)
+  void unassignNode(String nodeId) {
+    if (_networkingEnabled && !isCoordinator) {
+      appLog.warning('Only coordinator can unassign teams');
+      return;
+    }
+
+    if (_playerAssignments.containsKey(nodeId)) {
+      final assignment = _playerAssignments[nodeId]!;
+      _playerAssignments.remove(nodeId);
+
+      appLog.info(
+        'Coordinator: Unassigned node $nodeId (${assignment.nodeName}) from team ${assignment.teamId}',
+      );
+
+      if (_networkingEnabled) {
+        _broadcastAssignments();
+      }
+      notifyListeners();
+    }
   }
 
   void _broadcastAssignments() {
@@ -719,6 +763,19 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     return getDefaultGameConfiguration();
   }
 
+  /// Get team player counts for thrust calculation
+  Map<String, int> _getTeamPlayerCounts() {
+    final teamCounts = <String, int>{};
+
+    // Count players assigned to each team
+    for (final assignment in _playerAssignments.values) {
+      final teamKey = assignment.teamId.toString();
+      teamCounts[teamKey] = (teamCounts[teamKey] ?? 0) + 1;
+    }
+
+    return teamCounts;
+  }
+
   /// Get default game configuration
   Map<String, dynamic> getDefaultGameConfiguration() {
     // Get current settings as base, but override specific values for participants
@@ -745,6 +802,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       'created_at': DateTime.now().toIso8601String(),
       'networking_enabled': _networkingEnabled,
     };
+
+    // Add team player counts for thrust calculation
+    config['teams'] = _getTeamPlayerCounts();
 
     return config;
   }

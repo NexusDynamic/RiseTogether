@@ -54,7 +54,7 @@ class BitflagsNotifier with ChangeNotifier {
 class PhysicsSnapshot {
   final double timestamp;
   final List<double>
-  state; // Team1: ballX, ballY, paddleY, paddleAngle, stateL, stateR + Team2: ballX, ballY, paddleY, paddleAngle, stateL, stateR
+  state; // Team1: ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR + Team2: ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR
 
   PhysicsSnapshot({required this.timestamp, required this.state});
 }
@@ -131,6 +131,9 @@ class RiseTogetherGame extends Forge2DGame
   bool _isAuthoritativePhysics = false;
   final Queue<PhysicsSnapshot> _stateBuffer = Queue<PhysicsSnapshot>();
   static const int STATE_BUFFER_SIZE = 3; // Keep 3 frames for interpolation
+
+  // Team player counts for thrust calculation (received from coordinator)
+  Map<String, int>? _teamPlayerCounts;
 
   final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
@@ -357,8 +360,8 @@ class RiseTogetherGame extends Forge2DGame
       final thrust = teamStream?.getCurrentThrust();
 
       if (thrust != null) {
-        final prevLeft = _bitflagsNotifier.getLeftBitflags(actualTeamId);
-        final prevRight = _bitflagsNotifier.getRightBitflags(actualTeamId);
+        // final prevLeft = _bitflagsNotifier.getLeftBitflags(actualTeamId);
+        // final prevRight = _bitflagsNotifier.getRightBitflags(actualTeamId);
 
         // Update bitflags in notifier (will notify if changed)
         _bitflagsNotifier.updateBitflags(
@@ -366,13 +369,6 @@ class RiseTogetherGame extends Forge2DGame
           thrust.leftBitflags,
           thrust.rightBitflags,
         );
-
-        if (thrust.leftBitflags != prevLeft ||
-            thrust.rightBitflags != prevRight) {
-          appLog.info(
-            'Coordinator bitflags updated - Team $actualTeamId: Left=${thrust.leftBitflags}, Right=${thrust.rightBitflags}',
-          );
-        }
       }
     }
   }
@@ -493,7 +489,6 @@ class RiseTogetherGame extends Forge2DGame
         shortMultiplier: 0.0,
       );
 
-
       final worldCamera =
           CameraComponent(
               world: worlds[displayIndex],
@@ -514,18 +509,25 @@ class RiseTogetherGame extends Forge2DGame
     return cameras;
   }
 
-  Future<void> _addPaddles() async {
-    if (paddles.isNotEmpty) {
+  Future<void> _addPaddles({bool force = false}) async {
+    if (paddles.isNotEmpty && !force) {
       appLog.warning('Paddles already added, skipping paddle creation');
       return;
+    } else {
+      for (final paddle in paddles) {
+        paddle.removeFromParent();
+      }
+      paddles.clear();
     }
     for (int i = 0; i < cameras.length; i++) {
       final camera = cameras[i];
       final world = camera.world as RiseTogetherWorld;
-      final paddle = world.buildPaddle();
+      final paddle = world.buildPaddle(
+        widthMultiplier: appSettings.getDouble(
+          'physics.paddle_width_multiplier',
+        ),
+      );
       world.add(paddle);
-      final ball = world.buildBall();
-      world.add(ball);
 
       // wait for the paddle to be loaded
       await paddle.loaded;
@@ -533,16 +535,25 @@ class RiseTogetherGame extends Forge2DGame
       appLog.fine('Adding paddle to camera: ${camera.hashCode}');
       camera.follow(paddle);
 
-      // Set starting height for distance tracking
-      final ballStartHeight = ball.body.position.y;
-      final actualTeamId = getActualTeamId(i);
-      final team = Team.fromId(actualTeamId);
-      distanceTracker.setStartingHeight(actualTeamId, ballStartHeight);
-      appLog.info(
-        'Display position $i (${team.shortName}) ball starting height: $ballStartHeight',
-      );
+      if (!force) {
+        final ball = world.buildBall();
+        world.add(ball);
+        await ball.loaded;
+        // Set starting height for distance tracking
+        final ballStartHeight = ball.body.position.y;
+        final actualTeamId = getActualTeamId(i);
+        final team = Team.fromId(actualTeamId);
+        distanceTracker.setStartingHeight(actualTeamId, ballStartHeight);
+        appLog.info(
+          'Display position $i (${team.shortName}) ball starting height: $ballStartHeight',
+        );
+      }
 
-      // Note: World controllers will be connected during configuration
+      // Connect to existing world controllers if they exist (for paddle recreation)
+      if (force && worldControllers.length > i) {
+        worldControllers[i].setPaddle(paddles[i]);
+        appLog.fine('Reconnected world controller $i to new paddle');
+      }
     }
   }
 
@@ -591,21 +602,30 @@ class RiseTogetherGame extends Forge2DGame
     // Check if current assignments match the display mapping and swap streams if needed
     if (currentPlayerAssignment != null) {
       final playerTeam = currentPlayerAssignment!.teamId;
-      final expectedPlayerDisplayTeam = getActualTeamId(0); // Left should be player's team
-      
-      appLog.info('STREAM MAPPING CHECK: PlayerTeam=$playerTeam, LeftDisplayTeam=$expectedPlayerDisplayTeam');
-      
+      final expectedPlayerDisplayTeam = getActualTeamId(
+        0,
+      ); // Left should be player's team
+
+      appLog.info(
+        'STREAM MAPPING CHECK: PlayerTeam=$playerTeam, LeftDisplayTeam=$expectedPlayerDisplayTeam',
+      );
+
       // If player team is not on the left (display index 0), swap the streams
-      if (playerTeam != expectedPlayerDisplayTeam && worldControllers.length >= 2) {
-        appLog.info('SWAPPING STREAMS: Player team $playerTeam should be on left, swapping streams');
-        
+      if (playerTeam != expectedPlayerDisplayTeam &&
+          worldControllers.length >= 2) {
+        appLog.info(
+          'SWAPPING STREAMS: Player team $playerTeam should be on left, swapping streams',
+        );
+
         final stream0 = worldControllers[0].actionStream;
         final stream1 = worldControllers[1].actionStream;
-        
+
         worldControllers[0].setActionStream(stream1);
         worldControllers[1].setActionStream(stream0);
-        
-        appLog.info('STREAMS SWAPPED: Left now gets team ${stream1.teamId}, Right now gets team ${stream0.teamId}');
+
+        appLog.info(
+          'STREAMS SWAPPED: Left now gets team ${stream1.teamId}, Right now gets team ${stream0.teamId}',
+        );
       }
     }
 
@@ -842,18 +862,20 @@ class RiseTogetherGame extends Forge2DGame
       final gameConfig = config['game'] as Map<String, dynamic>;
       await appSettings.getGroup('game').updateFromMap(gameConfig);
       appLog.info('Applied game configuration from network');
-      
+
       // Re-initialize components with new settings
       final levelDuration = appSettings.getDouble('game.level_duration');
       timeProvider.initialize(levelDuration);
-      
+
       final tournamentRounds = appSettings.getInt('game.tournament_rounds');
       final levelsPerRound = appSettings.getInt('game.levels_per_round');
       tournamentManager.initialize(tournamentRounds, levelsPerRound);
-      
-      final distanceMultiplier = appSettings.getDouble('game.distance_multiplier');
+
+      final distanceMultiplier = appSettings.getDouble(
+        'game.distance_multiplier',
+      );
       distanceTracker.initialize(distanceMultiplier);
-      
+
       appLog.info('Reinitialized game components with network configuration');
     }
 
@@ -863,10 +885,20 @@ class RiseTogetherGame extends Forge2DGame
       appLog.info('Applied colors configuration from network');
     }
 
+    // Store team player counts for thrust calculation
+    if (config.containsKey('teams')) {
+      _teamPlayerCounts = Map<String, int>.from(config['teams']);
+      appLog.info('Received team player counts: $_teamPlayerCounts');
+    }
+
     if (config.containsKey('physics')) {
       final physicsConfig = config['physics'] as Map<String, dynamic>;
       await appSettings.getGroup('physics').updateFromMap(physicsConfig);
       appLog.info('Applied physics configuration from network');
+      
+      // Recreate paddles with updated physics settings (e.g., paddle width multiplier)
+      await _addPaddles(force: true);
+      appLog.info('Recreated paddles with updated physics settings');
     }
 
     if (config.containsKey('network')) {
@@ -897,6 +929,8 @@ class RiseTogetherGame extends Forge2DGame
     );
     distanceTracker.initialize(distanceMultiplier);
 
+    // Reload physics settings for each world
+    _addPaddles(force: true);
     appLog.info('Settings reloaded successfully');
   }
 
@@ -940,7 +974,7 @@ class RiseTogetherGame extends Forge2DGame
 
     final state = <double>[];
 
-    // For each team: ballX, ballY, paddleY, paddleAngle, stateL, stateR
+    // For each team: ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR
     for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
       final actualTeamId = getActualTeamId(displayIndex);
       final world = worlds[displayIndex];
@@ -949,6 +983,9 @@ class RiseTogetherGame extends Forge2DGame
         // Ball position
         state.add(world.ball.position.x);
         state.add(world.ball.position.y);
+
+        // Ball rotation
+        state.add(world.ball.body.angle);
 
         // Paddle position (only Y, X doesn't change)
         state.add(world.paddle.position.y);
@@ -967,7 +1004,7 @@ class RiseTogetherGame extends Forge2DGame
         ); // stateR (rightBitflags as float)
       } else {
         // Add default values if components not ready
-        state.addAll([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        state.addAll([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
       }
     }
 
@@ -976,7 +1013,7 @@ class RiseTogetherGame extends Forge2DGame
 
   /// Handle incoming physics state updates
   void _handleIncomingPhysicsState(List<double> stateData) {
-    if (stateData.length != 12) {
+    if (stateData.length != 14) {
       appLog.warning('Invalid physics state data length: ${stateData.length}');
       return;
     }
@@ -1084,9 +1121,11 @@ class RiseTogetherGame extends Forge2DGame
     ) {
       final world = worlds[displayIndex];
       final actualTeamId = getActualTeamId(displayIndex);
-      final stateOffset = actualTeamId * 6; // 6 values per team, use actual team ID
+      final stateOffset =
+          actualTeamId *
+          7; // 7 values per team (ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR)
 
-      if (stateOffset + 5 < latestState.state.length &&
+      if (stateOffset + 6 < latestState.state.length &&
           world.ball.isMounted &&
           world.paddle.isMounted) {
         // Apply ball position directly
@@ -1095,25 +1134,48 @@ class RiseTogetherGame extends Forge2DGame
         world.ball.setPosition(Vector2(ballX, ballY));
         //appLog.info('Set ball [NI] position to ($ballX, $ballY)');
 
+        // Apply ball rotation directly
+        final ballRotation = latestState.state[stateOffset + 2];
+        world.ball.body.setTransform(world.ball.body.position, ballRotation);
+
         // Apply paddle position (only Y) directly
-        final paddleY = latestState.state[stateOffset + 2];
+        final paddleY = latestState.state[stateOffset + 3];
         world.paddle.setPosition(Vector2(world.paddle.position.x, paddleY));
         //appLog.info('Set paddle [NI] Y position to $paddleY');
 
         // Apply paddle angle directly
-        final paddleAngle = latestState.state[stateOffset + 3];
+        final paddleAngle = latestState.state[stateOffset + 4];
         world.paddle.setAngle(paddleAngle);
 
         // Extract and store input bitflags for visual indicators
-        final leftBitflags = latestState.state[stateOffset + 4]
+        final leftBitflags = latestState.state[stateOffset + 5]
             .toInt(); // stateL
-        final rightBitflags = latestState.state[stateOffset + 5]
+        final rightBitflags = latestState.state[stateOffset + 6]
             .toInt(); // stateR
         _bitflagsNotifier.updateBitflags(
           actualTeamId,
           leftBitflags,
           rightBitflags,
         );
+
+        // Update parallax background for participants using same calculation as coordinator
+        if (!_isAuthoritativePhysics && _teamPlayerCounts != null) {
+          final leftPlayerCount = _countSetBits(leftBitflags);
+          final rightPlayerCount = _countSetBits(rightBitflags);
+          final teamPlayerCount =
+              _teamPlayerCounts![actualTeamId.toString()] ?? 5;
+          final thrustPerPlayer = 1.0 / teamPlayerCount;
+          
+          // Use same calculation as TeamThrust: leftThrust + rightThrust
+          final leftThrust = leftPlayerCount * thrustPerPlayer;
+          final rightThrust = rightPlayerCount * thrustPerPlayer;
+          final totalThrust = leftThrust + rightThrust;
+
+          // Update parallax background for participants
+          world.parallax.parallax!.baseVelocity.setFrom(
+            Vector2(0, -totalThrust),
+          );
+        }
       }
     }
     //}
@@ -1121,6 +1183,16 @@ class RiseTogetherGame extends Forge2DGame
 
   /// Linear interpolation helper
   // double _lerp(double a, double b, double t) => a + (b - a) * t;
+
+  /// Count the number of set bits in an integer (for calculating player count from bitflags)
+  int _countSetBits(int value) {
+    int count = 0;
+    while (value != 0) {
+      count += value & 1;
+      value >>= 1;
+    }
+    return count;
+  }
 
   /// Process local input prediction for responsiveness on followers
   void _processLocalInputPrediction(double dt) {
@@ -1142,14 +1214,15 @@ class RiseTogetherGame extends Forge2DGame
 
         if (world.paddle.isMounted) {
           // Apply predicted movement locally (will be corrected by authoritative state)
-          final predictedVelocity = Vector2(
-            0,
-            -thrust.leftThrust - thrust.rightThrust,
-          );
+          final totalThrust = thrust.leftThrust + thrust.rightThrust;
+          final predictedVelocity = Vector2(0, -totalThrust);
 
           // Apply small prediction offset (much smaller than authoritative physics)
           world.paddle.body.linearVelocity =
               predictedVelocity * 0.1; // Reduced impact for prediction
+
+          // Note: Parallax background is now updated by authoritative physics state
+          // to ensure both teams get proper starfield updates
         }
       }
     }

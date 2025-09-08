@@ -1,7 +1,7 @@
 name: rise_together
 description: "A joint action experimental paradigm for collaboration and competition"
 publish_to: 'none'
-version: 0.5.0
+version: 0.6.0
 
 environment:
   sdk: ^3.8.0
@@ -25,6 +25,9 @@ dependencies:
   flutter_colorpicker: ^1.1.0
   synchronized: ^3.4.0
   package_info_plus: ^8.3.1
+  flutter_native_splash: ^2.4.6
+  path_provider: ^2.1.5
+  network_info_plus: ^6.1.4
 
 dev_dependencies:
   flutter_test:
@@ -32,8 +35,9 @@ dev_dependencies:
   flame_console: ^0.1.2
   flutter_lints: ^6.0.0
   shared_preferences_platform_interface: ^2.4.1
+  flutter_launcher_icons: ^0.14.4
 flutter:
-  uses-material-design: false
+  uses-material-design: true
   assets:
     - assets/images/
     - assets/translations/

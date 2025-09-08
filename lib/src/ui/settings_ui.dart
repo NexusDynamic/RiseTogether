@@ -27,6 +27,8 @@ class _SettingsUIState extends State<SettingsUI>
   bool _localOnlyMode = false;
   double _gameScale = 0.0001;
   double _ballRadius = 1.0;
+  double _gravity = 9.81;
+  double _paddleWidthMultiplier = 1.0;
   double _levelDuration = 120.0;
   double _distanceMultiplier = 100.0;
   int _tournamentRounds = 3;
@@ -55,6 +57,10 @@ class _SettingsUIState extends State<SettingsUI>
       _tournamentRounds = appSettings.getInt('game.tournament_rounds');
       _levelsPerRound = appSettings.getInt('game.levels_per_round');
       _enableSurveys = appSettings.getBool('game.enable_surveys');
+      _gravity = appSettings.getDouble('physics.gravity');
+      _paddleWidthMultiplier = appSettings.getDouble(
+        'physics.paddle_width_multiplier',
+      );
 
       // Load team colors
       _teamAColor = Color(appSettings.getInt('colors.team_a_color'));
@@ -68,37 +74,67 @@ class _SettingsUIState extends State<SettingsUI>
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
+    final isWideScreen = screenWidth / screenHeight > 1.5;
 
+    // Use responsive sizing for wider screens
+    final horizontalMargin = isWideScreen
+        ? screenWidth * 0.15
+        : screenWidth * 0.1;
+    final verticalMargin = screenHeight * 0.08;
     return Container(
       width: screenWidth,
       height: screenHeight,
       color: Color.fromARGB(220, 0, 0, 0), // Semi-transparent background
-      child: Center(
-        child: Container(
-          width: screenWidth * 0.8,
-          height: screenHeight * 0.7,
-          decoration: BoxDecoration(
-            color: Color.fromARGB(255, 40, 40, 40),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Color.fromARGB(150, 0, 0, 0),
-                spreadRadius: 4,
-                blurRadius: 12,
-                offset: const Offset(0, 6),
+      child: Stack(
+        children: [
+          Center(
+            child: Container(
+              width: screenWidth - horizontalMargin * 2,
+              height: screenHeight - verticalMargin * 2,
+              decoration: BoxDecoration(
+                color: Color.fromARGB(255, 40, 40, 40),
+                borderRadius: BorderRadius.circular(5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color.fromARGB(150, 0, 0, 0),
+                    spreadRadius: 4,
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: ListView(
-            children: [
-              // Header with close button
-              _buildHeader(context),
+              child: ListView(
+                children: [
+                  // Header with close button
+                  _buildHeader(context),
 
-              // Settings content
-              _buildSettingsContent(context),
-            ],
+                  // Settings content
+                  _buildSettingsContent(context),
+                ],
+              ),
+            ),
           ),
-        ),
+          Positioned(
+            top: verticalMargin - 20,
+            right: horizontalMargin - 20,
+            child: GestureDetector(
+              onTap: _closeSettings,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Color.fromARGB(255, 100, 100, 100),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  CupertinoIcons.xmark,
+                  color: Color.fromARGB(255, 255, 255, 255),
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -122,22 +158,6 @@ class _SettingsUIState extends State<SettingsUI>
               color: Color.fromARGB(255, 255, 255, 255),
               fontSize: 24,
               fontWeight: FontWeight.bold,
-            ),
-          ),
-          GestureDetector(
-            onTap: _closeSettings,
-            child: Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: Color.fromARGB(100, 255, 0, 0),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                CupertinoIcons.xmark,
-                color: Color.fromARGB(255, 255, 255, 255),
-                size: 20,
-              ),
             ),
           ),
         ],
@@ -297,6 +317,41 @@ class _SettingsUIState extends State<SettingsUI>
 
           // Physics Settings Section
           _buildSectionHeader('Physics Settings'),
+          SizedBox(height: 20),
+
+          // Gravity Slider
+          _buildSliderSetting(
+            'Gravity',
+            'Gravity in m/s²',
+            _gravity,
+            0.0,
+            20.0,
+            (value) {
+              setState(() {
+                _gravity = value;
+              });
+              _saveSetting('physics.gravity', value);
+            },
+            suffix: ' m/s²',
+            decimalPlaces: 2,
+          ),
+          SizedBox(height: 20),
+          // Paddle Width Multiplier Slider
+          _buildSliderSetting(
+            'Paddle Width Multiplier',
+            'Adjust paddle width',
+            _paddleWidthMultiplier,
+            0.5,
+            2.0,
+            (value) {
+              setState(() {
+                _paddleWidthMultiplier = value;
+              });
+              _saveSetting('physics.paddle_width_multiplier', value);
+            },
+            suffix: 'x',
+            decimalPlaces: 2,
+          ),
           SizedBox(height: 20),
 
           // Game Scale Slider
@@ -627,7 +682,9 @@ class _SettingsUIState extends State<SettingsUI>
       widget.appLog.info('Saved setting $key: $value');
 
       // Reload settings in game if it's a game-related setting
-      if (key.startsWith('game.')) {
+      if (key.startsWith('game.') ||
+          key.startsWith('physics.') ||
+          key.startsWith('colors.')) {
         // Fire and forget - don't block UI for network reinitialization
         widget.game.reloadSettings();
         widget.appLog.info('Reloaded game settings after changing $key');

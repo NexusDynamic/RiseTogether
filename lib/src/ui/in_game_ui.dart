@@ -226,23 +226,23 @@ class InGameUI extends StatelessWidget
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          'My Team ${side.toUpperCase()}',
-          style: const TextStyle(
-            color: Color.fromARGB(150, 255, 255, 255),
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            backgroundColor: Color.fromARGB(150, 0, 0, 0),
-          ),
-        ),
-        const SizedBox(height: 10),
         _buildActionButton(
           teamId: currentPlayerTeamId, // Always use player's assigned team
           playerId: currentPlayerId,
           action: side == 'left' ? PaddleAction.left : PaddleAction.right,
           icon: CupertinoIcons.arrow_up_to_line,
           color: getTeamColorWithOpacity(currentPlayerTeam, 0.8),
-          size: 60,
+          size: 100,
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Lift ${side.toUpperCase()}',
+          style: const TextStyle(
+            color: Color.fromARGB(150, 255, 255, 255),
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            backgroundColor: Color.fromARGB(150, 0, 0, 0),
+          ),
         ),
       ],
     );
@@ -428,11 +428,11 @@ class InGameUI extends StatelessWidget
           onPointerPanZoomStart: (_) =>
               _handleActionPress(teamId, playerId, action, controller),
           onPointerPanZoomEnd: (_) =>
-              _handleActionRelease(teamId, playerId, controller),
+              _handleActionRelease(teamId, playerId, action, controller),
           onPointerUp: (_) =>
-              _handleActionRelease(teamId, playerId, controller),
+              _handleActionRelease(teamId, playerId, action, controller),
           onPointerCancel: (_) =>
-              _handleActionRelease(teamId, playerId, controller),
+              _handleActionRelease(teamId, playerId, action, controller),
           child: Container(
             width: size,
             height: size,
@@ -481,8 +481,13 @@ class InGameUI extends StatelessWidget
   void _handleActionRelease(
     int teamId,
     String playerId,
+    PaddleAction action,
     SimulatedPlayerController controller,
   ) {
+    if (controller.getPlayerAction(playerId) != action) {
+      // If the action has changed (e.g. from left to right), do not clear
+      return;
+    }
     // Clear the action in the controller
     controller.clearPlayerAction(playerId);
     // Send none action to the game
@@ -508,7 +513,7 @@ class InGameUI extends StatelessWidget
                   screenHeight: screenHeight,
                   isLeftSide: true,
                 ),
-                // Right team indicators  
+                // Right team indicators
                 _buildTeamInputIndicators(
                   teamId: game.getActualTeamId(1),
                   screenWidth: screenWidth,
@@ -532,9 +537,6 @@ class InGameUI extends StatelessWidget
     final leftBitflags = game.getTeamLeftBitflags(teamId);
     final rightBitflags = game.getTeamRightBitflags(teamId);
     final allPlayers = game.getAllPlayersBitflags();
-    
-    // Debug logging
-    appLog.info('UI: Team $teamId indicators - Left: $leftBitflags, Right: $rightBitflags, Players: ${allPlayers.length}');
 
     // Filter players for this team
     final teamPlayers = allPlayers.where((p) => p['teamId'] == teamId).toList();
@@ -585,7 +587,7 @@ class InGameUI extends StatelessWidget
     for (final player in teamPlayers) {
       final playerBitflag = player['bitflagValue'] as int;
       final playerIndex = player['index'] as int;
-      
+
       if (activeBitflags & playerBitflag != 0) {
         // This player is pressing this direction
         final playerColor = game.getPlayerColor(playerIndex);
@@ -597,11 +599,10 @@ class InGameUI extends StatelessWidget
             decoration: BoxDecoration(
               color: playerColor,
               shape: BoxShape.rectangle, // Square blocks
-              borderRadius: BorderRadius.circular(1), // Slightly rounded corners
-              border: Border.all(
-                color: CupertinoColors.white,
-                width: 1,
-              ),
+              borderRadius: BorderRadius.circular(
+                1,
+              ), // Slightly rounded corners
+              border: Border.all(color: CupertinoColors.white, width: 1),
               boxShadow: [
                 BoxShadow(
                   color: CupertinoColors.black.withValues(alpha: 0.4),
@@ -620,16 +621,10 @@ class InGameUI extends StatelessWidget
       return SizedBox(width: indicatorSize, height: indicatorSize);
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: activeIndicators,
-    );
+    return Row(mainAxisSize: MainAxisSize.min, children: activeIndicators);
   }
 
   void _sendAction(int teamId, String playerId, PaddleAction action) {
-    appLog.info(
-      'UI sending action: team=$teamId, player=$playerId, action=$action',
-    );
     game.sendAction(teamId, playerId, action);
   }
 }

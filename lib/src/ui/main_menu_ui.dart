@@ -5,6 +5,7 @@ import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/services/network_coordinator.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 
 class MainMenuUI extends StatelessWidget
     with AppLogging
@@ -13,6 +14,7 @@ class MainMenuUI extends StatelessWidget
   final RiseTogetherGame game;
   final NetworkCoordinator networkCoordinator;
   final Future<void> Function() onStartGame;
+  final info = NetworkInfo();
 
   MainMenuUI(this.game, this.networkCoordinator, this.onStartGame, {super.key});
 
@@ -26,105 +28,110 @@ class MainMenuUI extends StatelessWidget
       width: screenWidth,
       height: screenHeight,
       color: Color.fromARGB(200, 0, 0, 0), // Semi-transparent background
-      child: Stack(
+      child: Column(
         children: [
-          // Game title
-          Positioned(
-            top: screenHeight * 0.2,
-            left: 0,
-            right: 0,
-            child: Column(
-              children: [
-                Text(
-                  'Rise Together',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Color.fromARGB(255, 255, 255, 255),
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                  ),
+          SizedBox(height: 40),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              // Network status in top left
+              Container(
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: screenWidth * 0.2,
+                  child: _buildNetworkStatus(context),
                 ),
-                SizedBox(height: 10),
-                // Tournament Score Display
-                ChangeNotifierProvider.value(
-                  value: game.tournamentManager,
-                  builder: (ctx, _) {
-                    final tournamentManager = Provider.of<TournamentManager>(
-                      ctx,
-                    );
-                    return Text(
-                      'Tournament Score - Team 1: ${tournamentManager.team1RoundWins} | Team 2: ${tournamentManager.team2RoundWins}',
+              ),
+              Align(
+                alignment: AlignmentGeometry.center,
+                child: Column(
+                  children: [
+                    Text(
+                      'Rise Together',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Color.fromARGB(200, 255, 255, 255),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        backgroundColor: Color.fromARGB(100, 0, 0, 0),
+                        color: Color.fromARGB(255, 255, 255, 255),
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold,
                       ),
-                    );
-                  },
+                    ),
+                    SizedBox(height: 10),
+                    // Tournament Score Display
+                    ChangeNotifierProvider.value(
+                      value: game.tournamentManager,
+                      builder: (ctx, _) {
+                        final tournamentManager =
+                            Provider.of<TournamentManager>(ctx);
+                        return Text(
+                          'Tournament Score - Team 1: ${tournamentManager.team1RoundWins} | Team 2: ${tournamentManager.team2RoundWins}',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Color.fromARGB(200, 255, 255, 255),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            backgroundColor: Color.fromARGB(100, 0, 0, 0),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              // Settings icon in top right corner
+              SizedBox(
+                width: screenWidth * 0.2,
+                child: Container(
+                  alignment: Alignment.center,
+                  child: _buildSettingsButton(context),
+                ),
+              ),
+            ],
           ),
-
-          // Start game button (coordinator only) or waiting status
-          Positioned(
-            top: screenHeight * 0.45,
-            left: screenWidth * 0.25,
-            right: screenWidth * 0.25,
-            child: ChangeNotifierProvider.value(
-              value: networkCoordinator,
-              child: Consumer<NetworkCoordinator>(
-                builder: (context, coordinator, child) {
-                  if (coordinator.isCoordinator) {
-                    if (coordinator.gameStarting) {
-                      return _buildCoordinatorWaitingWidget(context, coordinator);
-                    } else {
-                      return _buildStartButton(context);
-                    }
-                  } else {
-                    return _buildWaitingForCoordinatorWidget(context);
-                  }
-                },
+          SizedBox(height: 50),
+          Expanded(
+            child: SizedBox(
+              width: 250,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  ChangeNotifierProvider.value(
+                    value: networkCoordinator,
+                    child: Consumer<NetworkCoordinator>(
+                      builder: (context, coordinator, child) {
+                        if (coordinator.isCoordinator) {
+                          if (coordinator.gameStarting) {
+                            return _buildCoordinatorWaitingWidget(
+                              context,
+                              coordinator,
+                            );
+                          } else {
+                            return _buildStartButton(context);
+                          }
+                        } else {
+                          return _buildWaitingForCoordinatorWidget(context);
+                        }
+                      },
+                    ),
+                  ),
+                  SizedBox(height: 15),
+                  // Reset game button
+                  _buildResetButton(context),
+                  SizedBox(height: 15),
+                  // Coordination button (if coordinator) - reactive to role changes
+                  ChangeNotifierProvider.value(
+                    value: networkCoordinator,
+                    child: Consumer<NetworkCoordinator>(
+                      builder: (context, coordinator, child) {
+                        return coordinator.isCoordinator
+                            ? _buildCoordinationButton(context)
+                            : SizedBox.shrink();
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-
-          // Reset game button
-          Positioned(
-            top: screenHeight * 0.55,
-            left: screenWidth * 0.25,
-            right: screenWidth * 0.25,
-            child: _buildResetButton(context),
-          ),
-          
-          // Coordination button (if coordinator) - reactive to role changes
-          ChangeNotifierProvider.value(
-            value: networkCoordinator,
-            child: Consumer<NetworkCoordinator>(
-              builder: (context, coordinator, child) {
-                return coordinator.isCoordinator
-                  ? Positioned(
-                      top: screenHeight * 0.65,
-                      left: screenWidth * 0.25,
-                      right: screenWidth * 0.25,
-                      child: _buildCoordinationButton(context),
-                    )
-                  : SizedBox.shrink();
-              },
-            ),
-          ),
-          
-          // Network status in top left
-          Positioned(
-            top: 40,
-            left: 40,
-            child: _buildNetworkStatus(context),
-          ),
-          
-          // Settings icon in top right corner
-          Positioned(top: 40, right: 40, child: _buildSettingsButton(context)),
         ],
       ),
     );
@@ -134,10 +141,10 @@ class MainMenuUI extends StatelessWidget
     return GestureDetector(
       onTap: _startGame,
       child: Container(
-        height: 60,
+        height: 50,
         decoration: BoxDecoration(
           color: Color.fromARGB(255, 0, 150, 255),
-          borderRadius: BorderRadius.circular(30),
+          borderRadius: BorderRadius.circular(5),
           boxShadow: [
             BoxShadow(
               color: Color.fromARGB(100, 0, 0, 0),
@@ -161,11 +168,14 @@ class MainMenuUI extends StatelessWidget
     );
   }
 
-  Widget _buildCoordinatorWaitingWidget(BuildContext context, NetworkCoordinator coordinator) {
+  Widget _buildCoordinatorWaitingWidget(
+    BuildContext context,
+    NetworkCoordinator coordinator,
+  ) {
     String statusText;
     Color backgroundColor;
     Color textColor;
-    
+
     if (coordinator.scheduledStartTime != null) {
       final remainingSeconds = coordinator.scheduledStartTime!
           .difference(DateTime.now())
@@ -188,14 +198,11 @@ class MainMenuUI extends StatelessWidget
     }
 
     return Container(
-      height: 60,
+      height: 50,
       decoration: BoxDecoration(
         color: backgroundColor,
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(
-          color: Color.fromARGB(100, 255, 255, 255),
-          width: 1,
-        ),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: Color.fromARGB(100, 255, 255, 255), width: 1),
       ),
       child: Center(
         child: Text(
@@ -218,23 +225,23 @@ class MainMenuUI extends StatelessWidget
           String statusText;
           Color backgroundColor;
           Color textColor;
-          
+
           if (coordinator.gameStarting) {
             if (coordinator.scheduledStartTime != null) {
               final remainingSeconds = coordinator.scheduledStartTime!
                   .difference(DateTime.now())
                   .inSeconds;
               if (remainingSeconds > 0) {
-                statusText = 'Game Starting in ${remainingSeconds}s';
+                statusText = '${remainingSeconds}s';
                 backgroundColor = Color.fromARGB(255, 255, 165, 0);
                 textColor = Color.fromARGB(255, 255, 255, 255);
               } else {
-                statusText = 'Game Starting Now!';
+                statusText = 'Starting Now!';
                 backgroundColor = Color.fromARGB(255, 0, 255, 0);
                 textColor = Color.fromARGB(255, 0, 0, 0);
               }
             } else {
-              statusText = 'Waiting for All Players Ready...';
+              statusText = 'Waiting...';
               backgroundColor = Color.fromARGB(255, 255, 165, 0);
               textColor = Color.fromARGB(255, 255, 255, 255);
             }
@@ -243,16 +250,16 @@ class MainMenuUI extends StatelessWidget
             backgroundColor = Color.fromARGB(255, 0, 255, 0);
             textColor = Color.fromARGB(255, 0, 0, 0);
           } else {
-            statusText = 'Waiting for Coordinator to Start';
+            statusText = 'Coordination Starting...';
             backgroundColor = Color.fromARGB(255, 100, 100, 100);
             textColor = Color.fromARGB(200, 255, 255, 255);
           }
 
           return Container(
-            height: 60,
+            height: 50,
             decoration: BoxDecoration(
               color: backgroundColor,
-              borderRadius: BorderRadius.circular(30),
+              borderRadius: BorderRadius.circular(5),
               border: Border.all(
                 color: Color.fromARGB(100, 255, 255, 255),
                 width: 1,
@@ -281,7 +288,7 @@ class MainMenuUI extends StatelessWidget
         height: 50,
         decoration: BoxDecoration(
           color: Color.fromARGB(255, 255, 100, 0),
-          borderRadius: BorderRadius.circular(25),
+          borderRadius: BorderRadius.circular(5),
           boxShadow: [
             BoxShadow(
               color: Color.fromARGB(100, 0, 0, 0),
@@ -312,7 +319,7 @@ class MainMenuUI extends StatelessWidget
         height: 50,
         decoration: BoxDecoration(
           color: Color.fromARGB(255, 150, 0, 255),
-          borderRadius: BorderRadius.circular(25),
+          borderRadius: BorderRadius.circular(5),
           boxShadow: [
             BoxShadow(
               color: Color.fromARGB(100, 0, 0, 0),
@@ -342,10 +349,11 @@ class MainMenuUI extends StatelessWidget
       child: Consumer<NetworkCoordinator>(
         builder: (context, coordinator, child) {
           return Container(
+            alignment: Alignment.topCenter,
             padding: EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Color.fromARGB(180, 0, 0, 0),
-              borderRadius: BorderRadius.circular(8),
+              color: Color.fromARGB(180, 0, 57, 70),
+              borderRadius: BorderRadius.circular(5),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,13 +369,15 @@ class MainMenuUI extends StatelessWidget
                 ),
                 SizedBox(height: 5),
                 Text(
-                  coordinator.isInitialized 
-                    ? (coordinator.isCoordinator ? 'Coordinator' : 'Participant')
-                    : 'Connecting...',
+                  coordinator.isInitialized
+                      ? (coordinator.isCoordinator
+                            ? 'Coordinator'
+                            : 'Participant')
+                      : 'Connecting...',
                   style: TextStyle(
-                    color: coordinator.isInitialized 
-                      ? Color.fromARGB(255, 0, 255, 0)
-                      : Color.fromARGB(255, 255, 255, 0),
+                    color: coordinator.isInitialized
+                        ? Color.fromARGB(255, 0, 255, 0)
+                        : Color.fromARGB(255, 255, 255, 0),
                     fontSize: 12,
                   ),
                 ),
@@ -377,6 +387,39 @@ class MainMenuUI extends StatelessWidget
                     color: Color.fromARGB(200, 255, 255, 255),
                     fontSize: 12,
                   ),
+                ),
+
+                /// IP address display
+                FutureBuilder<String?>(
+                  future: info.getWifiIP(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Text(
+                        'IP: Loading...',
+                        style: TextStyle(
+                          color: Color.fromARGB(200, 255, 255, 255),
+                          fontSize: 12,
+                        ),
+                      );
+                    } else if (snapshot.hasError) {
+                      return Text(
+                        'IP: Error',
+                        style: TextStyle(
+                          color: Color.fromARGB(200, 255, 100, 100),
+                          fontSize: 12,
+                        ),
+                      );
+                    } else {
+                      final ip = snapshot.data ?? 'Unavailable';
+                      return Text(
+                        'IP: $ip',
+                        style: TextStyle(
+                          color: Color.fromARGB(200, 255, 255, 255),
+                          fontSize: 12,
+                        ),
+                      );
+                    }
+                  },
                 ),
               ],
             ),
@@ -413,17 +456,18 @@ class MainMenuUI extends StatelessWidget
     );
   }
 
-
   void _startGame() async {
-    appLog.info('Starting game - configuring and starting with new architecture');
-    
+    appLog.info(
+      'Starting game - configuring and starting with new architecture',
+    );
+
     try {
       // Use the new lifecycle: configure and start game
       await onStartGame();
-      
+
       // Don't transition UI here - wait for coordinated start callback
       // UI transition will happen in _onGameActuallyStarted callback
-      
+
       appLog.info('Game coordination started - waiting for synchronized start');
     } catch (e) {
       appLog.severe('Failed to start game: $e');
@@ -433,7 +477,7 @@ class MainMenuUI extends StatelessWidget
 
   void _openCoordination() {
     appLog.info('Opening coordination overlay');
-    
+
     // Add the coordination overlay
     game.overlays.add('Coordination');
   }

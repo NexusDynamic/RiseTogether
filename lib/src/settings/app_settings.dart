@@ -50,7 +50,10 @@ mixin class AppSettings {
         // Physics settings group
         GroupConfig(
           key: 'physics',
-          items: [DoubleSetting(key: 'gravity', defaultValue: 9.81)],
+          items: [
+            DoubleSetting(key: 'gravity', defaultValue: 9.81),
+            DoubleSetting(key: 'paddle_width_multiplier', defaultValue: 1.0),
+          ],
         ),
         // Color settings group
         GroupConfig(
