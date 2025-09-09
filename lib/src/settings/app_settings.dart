@@ -53,6 +53,8 @@ mixin class AppSettings {
           items: [
             DoubleSetting(key: 'gravity', defaultValue: 9.81),
             DoubleSetting(key: 'paddle_width_multiplier', defaultValue: 1.0),
+            DoubleSetting(key: 'thrust_multiplier', defaultValue: 1.0),
+            DoubleSetting(key: 'rotation_multiplier', defaultValue: 1.0),
           ],
         ),
         // Color settings group

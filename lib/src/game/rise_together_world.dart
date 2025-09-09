@@ -1,10 +1,16 @@
-import 'package:flame/components.dart';
+import 'package:flame/components.dart' hide Matrix4;
+import 'package:flame/flame.dart';
+import 'package:flame/image_composition.dart' hide Matrix4;
+import 'package:flame/layers.dart';
 import 'package:flame/parallax.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/cupertino.dart' hide Image;
+import 'package:rise_together/src/attributes/team_color_provider.dart';
 import 'package:rise_together/src/components/ball.dart';
 import 'package:rise_together/src/components/wall.dart';
+import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/settings/app_settings.dart';
 import 'rise_together_game.dart';
 import 'package:rise_together/src/components/paddle.dart';
 
@@ -26,15 +32,54 @@ class Level2 extends RiseTogetherLevel {
   const Level2();
 }
 
+class BackgroundLayer extends PreRenderedLayer {
+  final RiseTogetherLevel level;
+
+  BackgroundLayer(this.level);
+
+  @override
+  void drawLayer() {
+    // Add gradient background
+    final rect = Rect.fromLTWH(
+      -level.horizontalWidth / 2,
+      -level.horizontalWidth * level.verticalMultiplier,
+      level.horizontalWidth,
+      level.horizontalWidth * level.verticalMultiplier,
+    );
+    final gradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      // cool to warm
+      colors: [
+        const Color.fromARGB(255, 55, 0, 0),
+        const Color.fromARGB(255, 17, 17, 54),
+      ],
+    );
+    final paint = Paint()
+      ..shader = gradient.createShader(rect)
+      ..blendMode = BlendMode.lighten;
+    canvas.drawRect(rect, paint);
+  }
+}
+
 class RiseTogetherWorld extends Forge2DWorld
-    with HasGameReference<RiseTogetherGame>, AppLogging {
+    with
+        HasGameReference<RiseTogetherGame>,
+        AppLogging,
+        AppSettings,
+        TeamColorProvider {
   final RiseTogetherLevel level;
   late final ParallaxComponent parallax;
   late CameraComponent _worldCamera;
   late Ball ball;
   late Paddle paddle;
+  late final Image image;
+  final bool left;
+  final BackgroundLayer bgLayer;
 
-  RiseTogetherWorld({required this.level}) : super(gravity: Vector2.zero());
+  RiseTogetherWorld({required this.level, required this.left})
+    : bgLayer = BackgroundLayer(level),
+      super(gravity: Vector2.zero());
 
   void setWorldCamera(CameraComponent camera) {
     _worldCamera = camera;
@@ -77,13 +122,23 @@ class RiseTogetherWorld extends Forge2DWorld
     game.clearTeamActions(this);
 
     // Reset ball and paddle to starting positions (world components - reused)
-    ball.setPosition(Vector2(0.0, -1));
+    ball.cancelPendingTransforms();
     ball.stopMovement();
+    ball.setPosition(Vector2(0.0, -1));
+
     // @TODO: this should not be hardcoded, use conf or props
-    paddle.setPosition(Vector2(0, -0.01 - 0.01 * level.horizontalWidth));
+    paddle.cancelPendingTransforms();
     paddle.setAngle(0);
+    paddle.setPosition(Vector2(0, -0.01 - 0.01 * level.horizontalWidth));
 
     // Note: walls and obstacles stay the same for restart (level components)
+  }
+
+  @override
+  void render(Canvas canvas) {
+    // Render background layer first
+    super.render(canvas);
+    bgLayer.render(canvas);
   }
 
   /// Load a new level configuration
@@ -128,17 +183,18 @@ class RiseTogetherWorld extends Forge2DWorld
       Wall(
         this,
         Vector2(-width / 2, 0),
-        Vector2(width / 2, 0),
+        Vector2(width / 2, 1),
         isFatal: false,
+        usePolygon: true,
+        image: image,
         paint: Paint()
-          ..color = const Color.fromARGB(255, 255, 0, 0)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.01 * width,
+          ..color = const Color.fromARGB(255, 71, 71, 71)
+          ..style = PaintingStyle.fill,
       ),
       Wall(
         this,
         Vector2(width / 2, 0),
-        Vector2(width / 2, -height),
+        Vector2(width / 2 + 0.01, -height),
         isFatal: false,
         paint: Paint()
           ..color = const Color.fromARGB(255, 0, 255, 51)
@@ -148,7 +204,7 @@ class RiseTogetherWorld extends Forge2DWorld
       Wall(
         this,
         Vector2(width / 2, -height),
-        Vector2(-width / 2, -height),
+        Vector2(-width / 2, -height - 0.01),
         isFatal: false,
         paint: Paint()
           ..color = const Color.fromARGB(255, 0, 128, 255)
@@ -158,7 +214,7 @@ class RiseTogetherWorld extends Forge2DWorld
       Wall(
         this,
         Vector2(-width / 2, -height),
-        Vector2(-width / 2, 0),
+        Vector2(-0.01 + -width / 2, 0),
         isFatal: false,
         paint: Paint()
           ..color = const Color.fromARGB(255, 204, 255, 0)
@@ -171,19 +227,46 @@ class RiseTogetherWorld extends Forge2DWorld
       appLog.fine('Adding wall: $wall');
     }
     addAll(walls);
+
+    add(
+      TextComponent(
+        text: left ? 'Your Team' : 'Opponent Team',
+        anchor: Anchor.center,
+        textRenderer: TextPaint(
+          style: TextStyle(
+            color: left ? getTeamBaseColor(Team.a) : getTeamBaseColor(Team.b),
+            fontSize: 1,
+            shadows: [
+              Shadow(
+                offset: Offset(0.05, 0.05),
+                blurRadius: 0.8,
+                color: Color.fromARGB(148, 0, 0, 0),
+              ),
+            ],
+          ),
+        ),
+        position: Vector2(0, 0.1),
+        size: Vector2(width, 1),
+        scale: Vector2.all(0.1),
+      ),
+    );
   }
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
+    image = await Flame.images.load('ground_floor.png');
     parallax = await game.loadParallaxComponent(
       [
         ParallaxImageData('stars_0.png'),
         ParallaxImageData('stars_1.png'),
         ParallaxImageData('stars_2.png'),
+        ParallaxImageData('bg_scaffold.png'),
       ],
       baseVelocity: Vector2(0, 0),
-      repeat: ImageRepeat.repeat,
+      repeat: ImageRepeat.repeatY,
+      fill: LayerFill.width,
+      size: Vector2(game.size.x / 2, game.size.y),
       velocityMultiplierDelta: Vector2(0, 5),
     );
     worldCamera.backdrop.add(parallax);

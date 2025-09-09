@@ -45,16 +45,11 @@ class TeamActionStream {
   /// Clear all current actions for all players (used when ball hits wall)
   void clearAllActions() {
     final playerIds = _currentActions.keys.toList();
-    print(
-      'TeamActionStream: Clearing actions for team $teamId, players: $playerIds',
-    );
+
     for (final playerId in playerIds) {
-      final previousAction = _currentActions[playerId];
+      // final previousAction = _currentActions[playerId];
       _currentActions[playerId] = PaddleAction.none;
       _controller.add(GameAction(playerId, PaddleAction.none));
-      print(
-        'TeamActionStream: Cleared $playerId: $previousAction -> PaddleAction.none',
-      );
     }
   }
 

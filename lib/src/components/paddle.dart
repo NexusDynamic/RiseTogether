@@ -1,13 +1,16 @@
+import 'package:flame/components.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:rise_together/src/attributes/positionable.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/services/log_service.dart';
+import 'package:rise_together/src/settings/app_settings.dart';
 
 class Paddle extends BodyComponent<RiseTogetherGame>
-    with AppLogging, PositionableBodyComponent, Resetable {
+    with AppLogging, AppSettings, PositionableBodyComponent, Resetable {
   final Vector2 _start;
+  final Vector2 _end;
   final double _w;
   final double _h;
 
@@ -22,9 +25,25 @@ class Paddle extends BodyComponent<RiseTogetherGame>
   // Public getter for starting position
   Vector2 get startPosition => Vector2(_start.x + _w, _start.y);
 
-  Paddle(this.world, this._start, _end)
+  Paddle(this.world, this._start, this._end)
     : _w = (_end.x - _start.x).abs() / 2, // Ensure minimum width
       _h = (_end.y - _start.y).abs() / 2; // Ensure minimum height
+
+  @override
+  Future<void> onLoad() async {
+    // add a circle component to represent the anchor point. ..this is visible
+    // but does not interact with physics.
+    await add(
+      CircleComponent(
+        radius: 0.006,
+        paint: Paint()..color = const Color.fromARGB(149, 26, 26, 26),
+        anchor: Anchor.center,
+        position: Vector2(_start.x + _w, _start.y),
+      ),
+    );
+
+    super.onLoad();
+  }
 
   @override
   Body createBody() {
@@ -59,9 +78,10 @@ class Paddle extends BodyComponent<RiseTogetherGame>
   @override
   void update(double dt) {
     super.update(dt);
-
-    applyPendingTransforms();
-
+    if (hasPendingTransforms) {
+      applyPendingTransforms();
+      return;
+    }
     // If no thrust, stop movement
     if (thrustLeft == 0.0 && thrustRight == 0.0) {
       body.clearForces();
@@ -74,16 +94,21 @@ class Paddle extends BodyComponent<RiseTogetherGame>
     // Calculate rotation amount based on thrust difference
     double rotationAmount = 0.0;
     final degreesPerSecond = 1.0;
+    final rotationMultiplier = appSettings.getDouble(
+      'physics.rotation_multiplier',
+    );
     if (thrustLeft > 0) {
-      rotationAmount += degreesPerSecond * dt * thrustLeft;
+      rotationAmount += degreesPerSecond * rotationMultiplier * dt * thrustLeft;
     }
     if (thrustRight > 0) {
-      rotationAmount -= degreesPerSecond * dt * thrustRight;
+      rotationAmount -=
+          degreesPerSecond * rotationMultiplier * dt * thrustRight;
     }
 
     // Calculate upward velocity based on total thrust
     final totalThrust = thrustLeft + thrustRight;
-    final upwardVelocity = -1.0 * totalThrust;
+    final thrustMultiplier = appSettings.getDouble('physics.thrust_multiplier');
+    final upwardVelocity = -1.0 * thrustMultiplier * totalThrust;
 
     // Apply the rotation and upward velocity
     body.setTransform(body.position, body.angle + rotationAmount);
@@ -97,7 +122,7 @@ class Paddle extends BodyComponent<RiseTogetherGame>
       body.angularVelocity = 0.0;
       body.setTransform(body.position, 1.3);
     }
-
+    applyPendingTransforms();
     positionNotifier.value = body.position.y;
   }
 

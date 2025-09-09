@@ -29,6 +29,8 @@ class _SettingsUIState extends State<SettingsUI>
   double _ballRadius = 1.0;
   double _gravity = 9.81;
   double _paddleWidthMultiplier = 1.0;
+  double _thrustMultiplier = 1.0;
+  double _rotationMultiplier = 1.0;
   double _levelDuration = 120.0;
   double _distanceMultiplier = 100.0;
   int _tournamentRounds = 3;
@@ -61,6 +63,8 @@ class _SettingsUIState extends State<SettingsUI>
       _paddleWidthMultiplier = appSettings.getDouble(
         'physics.paddle_width_multiplier',
       );
+      _thrustMultiplier = appSettings.getDouble('physics.thrust_multiplier');
+      _rotationMultiplier = appSettings.getDouble('physics.rotation_multiplier');
 
       // Load team colors
       _teamAColor = Color(appSettings.getInt('colors.team_a_color'));
@@ -348,6 +352,42 @@ class _SettingsUIState extends State<SettingsUI>
                 _paddleWidthMultiplier = value;
               });
               _saveSetting('physics.paddle_width_multiplier', value);
+            },
+            suffix: 'x',
+            decimalPlaces: 2,
+          ),
+          SizedBox(height: 20),
+
+          // Thrust Multiplier Slider
+          _buildSliderSetting(
+            'Thrust Multiplier',
+            'Adjust paddle thrust strength',
+            _thrustMultiplier,
+            0.1,
+            3.0,
+            (value) {
+              setState(() {
+                _thrustMultiplier = value;
+              });
+              _saveSetting('physics.thrust_multiplier', value);
+            },
+            suffix: 'x',
+            decimalPlaces: 2,
+          ),
+          SizedBox(height: 20),
+
+          // Rotation Multiplier Slider
+          _buildSliderSetting(
+            'Rotation Multiplier',
+            'Adjust paddle rotation speed',
+            _rotationMultiplier,
+            0.1,
+            3.0,
+            (value) {
+              setState(() {
+                _rotationMultiplier = value;
+              });
+              _saveSetting('physics.rotation_multiplier', value);
             },
             suffix: 'x',
             decimalPlaces: 2,

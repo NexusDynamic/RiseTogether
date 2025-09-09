@@ -69,7 +69,7 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
   /// Get formatted distance string for display
   String getFormattedDistance(int teamId) {
     final distance = getTeamDistance(teamId);
-    return '${distance.toStringAsFixed(1)}m';
+    return distance.toStringAsFixed(1);
   }
 
   /// Get the current max distance for a team by Team enum

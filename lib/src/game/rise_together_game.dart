@@ -2,6 +2,7 @@ import 'package:flame/camera.dart';
 import 'package:flame/components.dart';
 import 'package:flame/flame.dart';
 import 'package:flame/game.dart';
+import 'package:flame/layers.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/cupertino.dart';
@@ -102,7 +103,7 @@ class TimeProvider extends ChangeNotifier with Resetable {
   }
 }
 
-class RiseTogetherGame extends Forge2DGame
+class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     with
         KeyboardEvents,
         SingleGameInstance,
@@ -397,16 +398,14 @@ class RiseTogetherGame extends Forge2DGame
       final nodeId = player['nodeId'] as String;
       final bitflagValue = player['bitflagValue'] as int;
 
-      // Map both playerId and nodeId to the same bitflag value
-      // because different parts of the system use different IDs
-      result[playerId] = bitflagValue;
+      // Standardize on nodeId (UUID) as the authoritative player identifier
+      // Map both the nodeId and its remote_player hash version
       result[nodeId] = bitflagValue;
+      result['remote_player_${nodeId.hashCode.abs()}'] = bitflagValue;
 
-      // Also add potential transformed remote player IDs
-      // The network system might transform player IDs
-      if (!nodeId.startsWith('remote_player_')) {
-        // Try to map any remote_player_* variations
-        result['remote_player_${nodeId.hashCode.abs()}'] = bitflagValue;
+      // Legacy support: also map playerId in case it's used somewhere
+      if (playerId != nodeId) {
+        result[playerId] = bitflagValue;
       }
 
       // Debug logging
@@ -430,7 +429,6 @@ class RiseTogetherGame extends Forge2DGame
 
   /// Clear all player actions for a specific team (when ball hits wall)
   void clearTeamActions(RiseTogetherWorld world) {
-    print('clearTeamActions called!');
     if (!isConfigured) return;
 
     // Find which display index this world belongs to
@@ -441,9 +439,6 @@ class RiseTogetherGame extends Forge2DGame
     }
 
     final actualTeamId = getActualTeamId(displayIndex);
-    print(
-      'Clearing actions for team $actualTeamId (displayIndex: $displayIndex)',
-    );
     appLog.info(
       'Clearing actions for team $actualTeamId (displayIndex: $displayIndex)',
     );
@@ -461,7 +456,8 @@ class RiseTogetherGame extends Forge2DGame
       // Then send "none" action to participants on this team
       for (final assignment in playerAssignments) {
         if (assignment.teamId == actualTeamId && !assignment.isCoordinator) {
-          sendAction(actualTeamId, assignment.playerId, PaddleAction.none);
+          // Use nodeId (UUID) for consistency with UI actions
+          sendAction(actualTeamId, assignment.nodeId, PaddleAction.none);
         }
       }
     } else if (_actionProvider is LocalActionProvider) {
@@ -491,7 +487,7 @@ class RiseTogetherGame extends Forge2DGame
 
   List<Forge2DWorld> _buildWorlds() {
     for (int i = 0; i < nTeams; i++) {
-      final world = RiseTogetherWorld(level: level);
+      final world = RiseTogetherWorld(level: level, left: i == 0);
       worlds.add(world);
     }
     return worlds;
@@ -826,6 +822,12 @@ class RiseTogetherGame extends Forge2DGame
     } else {
       // Coordinator: update current bitflags for visual indicators
       _updateCurrentBitflags();
+
+      // Broadcast physics state changes to other participants
+      if (_actionProvider is NetworkActionProvider) {
+        final networkProvider = _actionProvider as NetworkActionProvider;
+        networkProvider.networkCoordinator.broadcastPhysicsStateOnChange();
+      }
     }
 
     timeProvider.updateTime(dt);
@@ -1086,11 +1088,17 @@ class RiseTogetherGame extends Forge2DGame
       appLog.warning('Invalid physics state data length: ${stateData.length}');
       return;
     }
-
-    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final dtNow = DateTime.now();
+    final now = dtNow.millisecondsSinceEpoch / 1000.0;
     final snapshot = PhysicsSnapshot(timestamp: now, state: stateData);
 
     _stateBuffer.add(snapshot);
+    appLog.logData(
+      'app_data',
+      'PHYSICS_STATE_RECEIVED',
+      data: {'state': stateData},
+      timestamp: dtNow,
+    );
 
     // Keep buffer size manageable
     while (_stateBuffer.length > STATE_BUFFER_SIZE) {

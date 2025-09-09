@@ -68,7 +68,9 @@ class Ball extends BodyComponent<RiseTogetherGame>
   @override
   void update(double dt) {
     super.update(dt);
-    applyPendingTransforms();
+    if (hasPendingTransforms) {
+      applyPendingTransforms();
+    }
   }
 
   @override
@@ -78,7 +80,7 @@ class Ball extends BodyComponent<RiseTogetherGame>
     isRising = false;
     stopMovement();
     setPosition(startPosition);
-    applyPendingTransforms();
+    //applyPendingTransforms();
   }
 
   @override

@@ -6,6 +6,10 @@ abstract mixin class PositionableBodyComponent {
   bool _pendingAngleUpdate = false;
   final Vector2 _pendingPosition = Vector2.zero();
   double _pendingAngle = 0.0;
+  bool get hasPendingPositionUpdate => _pendingPositionUpdate;
+  bool get hasPendingAngleUpdate => _pendingAngleUpdate;
+  bool get hasPendingTransforms =>
+      _pendingPositionUpdate || _pendingAngleUpdate;
 
   /// Sets the position of the object.
   void setPosition(Vector2 position) {

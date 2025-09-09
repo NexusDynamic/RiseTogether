@@ -54,7 +54,11 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   LSLDataStream? _gameDataStream;
   LSLDataStream? _physDataStream;
   Timer? _statebroadcastTimer;
-  static const int PHYSICS_BROADCAST_RATE = 60; // Hz
+  static const int physicsBroadcastRate = 120; // Hz
+
+  // Throttling for change-based physics updates
+  DateTime? _lastPhysicsUpdate;
+  static const int minPhysicsUpdateIntervalMs = 8; // ~120 FPS max
 
   // Physics state provider callback - will be set by the game
   List<double>? Function()? _gamePhysicsStateProvider;
@@ -153,7 +157,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
         ),
         streamConfig: CoordinationStreamConfig(
           name: 'rise_together_coordination',
-          sampleRate: 50.0,
+          sampleRate: 10.0,
         ),
         transportConfig: LSLTransportConfig(
           lslApiConfig: LSLApiConfig(
@@ -161,7 +165,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
             logLevel: -2,
             portRange: 1024,
           ),
-          coordinationFrequency: 50.0,
+          coordinationFrequency: 10.0,
         ),
       );
 
@@ -321,7 +325,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
               message.payload['assignments'] as Map<String, dynamic>?;
           final teamCountsData =
               message.payload['team_counts'] as Map<String, dynamic>?;
-              
+
           if (assignmentsData != null) {
             _playerAssignments.clear();
             for (final entry in assignmentsData.entries) {
@@ -332,7 +336,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
             appLog.info(
               'Received player assignments: ${_playerAssignments.length} assignments',
             );
-            
+
             // Store team player counts for game configuration
             if (teamCountsData != null) {
               final currentConfig = _gameConfiguration ?? <String, dynamic>{};
@@ -447,7 +451,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
           final teamStream = _actionManager!.getTeamStream(teamId);
           if (teamStream != null) {
             teamStream.addAction(GameAction(playerId, action));
-          } else {}
+          }
 
           appLog.logData(
             'app_data',
@@ -554,7 +558,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       name: 'PhysicsState',
       channels:
           14, // Team1: ballX, ballY, paddleY, paddleAngle, stateL, stateR + Team2: ballX, ballY, paddleY, paddleAngle, stateL, stateR
-      sampleRate: PHYSICS_BROADCAST_RATE.toDouble(),
+      sampleRate: physicsBroadcastRate.toDouble(),
       dataType: StreamDataType.float32,
       participationMode: StreamParticipationMode.coordinatorOnly,
     );
@@ -580,6 +584,12 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     // Get current physics state from the game
     final state = _gamePhysicsStateProvider!();
     if (state != null) {
+      appLog.logData(
+        'app_data',
+        'PHYSICS_STATE_BROADCAST',
+        data: {'state': state},
+        timestamp: DateTime.now(),
+      );
       _physDataStream!.sendData(state);
       // Debug log occasionally to verify data is being sent
       // if (DateTime.now().millisecondsSinceEpoch % 1000 < 50) {
@@ -590,6 +600,24 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     } else {
       appLog.warning('Physics state provider returned null');
     }
+  }
+
+  /// Broadcast physics state on demand (with throttling)
+  void broadcastPhysicsStateOnChange() {
+    if (!_gameActive || !isCoordinator) return;
+
+    final now = DateTime.now();
+    if (_lastPhysicsUpdate != null) {
+      final timeSinceLastUpdate = now
+          .difference(_lastPhysicsUpdate!)
+          .inMilliseconds;
+      if (timeSinceLastUpdate < minPhysicsUpdateIntervalMs) {
+        return; // Too soon, skip this update
+      }
+    }
+
+    _lastPhysicsUpdate = now;
+    _broadcastPhysicsState();
   }
 
   void _initiateCoordinatedStart() async {
@@ -630,11 +658,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     _gameStarting = false;
 
     if (isCoordinator) {
-      // Start broadcasting physics state
-      _statebroadcastTimer = Timer.periodic(
-        Duration(microseconds: (1000000 / PHYSICS_BROADCAST_RATE).round()),
-        (_) => _broadcastPhysicsState(),
-      );
+      // Physics state will now be broadcast on-demand when changes occur
+      // No more periodic timer needed
+
       // Send final start message
       _session!.sendUserMessage('start_game', 'Game started now!', {});
     }
@@ -737,7 +763,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     final currentConfig = _gameConfiguration ?? <String, dynamic>{};
     currentConfig['teams'] = teamCounts;
     _gameConfiguration = currentConfig;
-    
+
     appLog.info(
       'Broadcasted player assignments to ${connectedNodes.length} participants',
     );
@@ -848,8 +874,17 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       final sample = [teamId, action.index, playerIdHash];
 
       _gameDataStream!.sendData(sample);
-      appLog.finest(
-        'Sent game action: team=$teamId, player=$playerId, action=$action',
+      appLog.logData(
+        'app_data',
+        'GAME_ACTION_SENT',
+        data: {
+          'team_id': teamId,
+          'action_index': action.index,
+          'player_id_hash': playerIdHash,
+          'action': action.toString(),
+          'player_id': playerId,
+        },
+        timestamp: DateTime.now(),
       );
     } catch (e) {
       appLog.warning('Failed to send game action: $e');

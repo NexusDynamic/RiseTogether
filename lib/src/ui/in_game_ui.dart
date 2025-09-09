@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/attributes/team_color_provider.dart';
-import 'package:rise_together/src/ui/level_progress.dart';
+//import 'package:rise_together/src/ui/level_progress.dart';
 import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
@@ -38,12 +38,12 @@ class SimulatedPlayerController extends ChangeNotifier {
     final affectedPlayers = _activeActions.keys
         .where((playerId) => _activeActions[playerId] != PaddleAction.none)
         .toList();
-    
+
     if (_activeActions.isNotEmpty) {
       _activeActions.clear();
       notifyListeners();
     }
-    
+
     return affectedPlayers;
   }
 
@@ -71,8 +71,9 @@ class InGameUI extends StatelessWidget
     final teamId = currentAssignment.teamId;
 
     // Get affected players from UI controller and send NONE actions
-    final affectedPlayers = _simulatedController.clearAllPlayerActionsAndGetAffected();
-    
+    final affectedPlayers = _simulatedController
+        .clearAllPlayerActionsAndGetAffected();
+
     // Send NONE actions for any buttons that were pressed
     for (final affectedPlayerId in affectedPlayers) {
       if (affectedPlayerId == playerId) {
@@ -154,12 +155,12 @@ class InGameUI extends StatelessWidget
                 );
 
                 return Text(
-                  'My Team: $leftDistance | Opponent: $rightDistance',
+                  '$leftDistance | $rightDistance',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     backgroundColor: Color.fromARGB(150, 0, 0, 0),
                     color: Color.fromARGB(200, 255, 255, 255),
-                    fontSize: 14,
+                    fontSize: 20,
                     fontWeight: FontWeight.w600,
                   ),
                 );
@@ -193,24 +194,24 @@ class InGameUI extends StatelessWidget
       child: Stack(
         children: [
           // Progress indicators in center
-          Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildProgressIndicator(
-                  context,
-                  game.getActualTeamId(0),
-                  screenHeight,
-                ),
-                SizedBox(width: 20),
-                _buildProgressIndicator(
-                  context,
-                  game.getActualTeamId(1),
-                  screenHeight,
-                ),
-              ],
-            ),
-          ),
+          // Center(
+          //   child: Row(
+          //     mainAxisSize: MainAxisSize.min,
+          //     children: [
+          //       _buildProgressIndicator(
+          //         context,
+          //         game.getActualTeamId(0),
+          //         screenHeight,
+          //       ),
+          //       SizedBox(width: 20),
+          //       _buildProgressIndicator(
+          //         context,
+          //         game.getActualTeamId(1),
+          //         screenHeight,
+          //       ),
+          //     ],
+          //   ),
+          // ),
           // Show either simulated or current player controls based on setting
           if (_isSimulatedMode())
             ..._buildSimulatedPlayerControls(screenWidth, screenHeight)
@@ -226,7 +227,7 @@ class InGameUI extends StatelessWidget
             ),
             // Current player controls - Right side
             Positioned(
-              right: 20,
+              right: screenWidth / 2 + 20,
               bottom: 50,
               child: _buildCurrentPlayerControls(
                 side: 'right',
@@ -239,13 +240,13 @@ class InGameUI extends StatelessWidget
     );
   }
 
-  Widget _buildProgressIndicator(
-    BuildContext context,
-    int teamId,
-    double screenHeight,
-  ) {
-    return LevelProgressMeter(game: game, teamId: teamId);
-  }
+  // Widget _buildProgressIndicator(
+  //   BuildContext context,
+  //   int teamId,
+  //   double screenHeight,
+  // ) {
+  //   return LevelProgressMeter(game: game, teamId: teamId);
+  // }
 
   Widget _buildCurrentPlayerControls({
     required String side,
