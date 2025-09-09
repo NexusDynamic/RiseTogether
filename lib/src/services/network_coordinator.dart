@@ -161,7 +161,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
         ),
         transportConfig: LSLTransportConfig(
           lslApiConfig: LSLApiConfig(
-            // ipv6: IPv6Mode.disable,
+            ipv6: IPv6Mode.disable,
             logLevel: -2,
             portRange: 1024,
           ),
