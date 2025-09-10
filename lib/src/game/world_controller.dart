@@ -1,62 +1,76 @@
 import 'dart:async';
 import 'package:flame/components.dart';
+import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/game/rise_together_world.dart';
 import 'package:rise_together/src/components/paddle.dart';
 import 'package:rise_together/src/models/team_thrust.dart';
+import 'package:rise_together/src/models/team_context.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
 /// Controls the connection between team action streams and world paddles
-class WorldController with AppLogging {
+class WorldController with AppLogging, Resetable {
   final RiseTogetherWorld world;
-  TeamActionStream actionStream;
+  TeamActionStream get actionStream => _teamContext.actionStream;
   late StreamSubscription<TeamThrust> _thrustSubscription;
-  Paddle? _paddle;
-  final bool shouldUpdateParallax;
-  final int configuredTeamPlayerCount;
+  bool shouldUpdateParallax;
+  int configuredTeamPlayerCount;
+
+  /// Team context providing consolidated team information
+  TeamContext _teamContext;
+  TeamContext get team => _teamContext;
 
   WorldController({
     required this.world,
-    required this.actionStream,
     this.shouldUpdateParallax = true,
     required this.configuredTeamPlayerCount,
-  });
-
-  void initialize() {
-    appLog.fine('Initializing WorldController for team ${actionStream.teamId}');
-
+    required TeamContext teamContext,
+  }) : _teamContext = teamContext {
+    // Vital
+    world.setWorldController(this);
     _thrustSubscription = actionStream.thrustStream.listen((thrust) {
       _updatePaddleThrust(thrust);
     });
   }
 
-  void setActionStream(TeamActionStream newStream) {
-    // Cancel existing subscription
+  // void initialize() {
+  //   appLog.fine('Initializing WorldController for team ${actionStream.teamId}');
+  // }
+
+  // void setActionStream(TeamActionStream newStream) {
+  //   // Cancel existing subscription
+  //   _thrustSubscription.cancel();
+
+  //   actionStream = newStream;
+
+  //   // Resubscribe to the new stream
+  //   _thrustSubscription = actionStream.thrustStream.listen((thrust) {
+  //     _updatePaddleThrust(thrust);
+  //   });
+
+  //   appLog.fine('Action stream updated for team ${actionStream.teamId}');
+  // }
+
+  /// Update the team context and notify the world
+  void setTeamContext(TeamContext teamContext) {
     _thrustSubscription.cancel();
-
-    actionStream = newStream;
-
-    // Resubscribe to the new stream
+    _teamContext = teamContext;
+    world.updateTeamContext(teamContext);
     _thrustSubscription = actionStream.thrustStream.listen((thrust) {
       _updatePaddleThrust(thrust);
     });
-
-    appLog.fine('Action stream updated for team ${actionStream.teamId}');
+    // TODO: Fix hack...
+    configuredTeamPlayerCount = _teamContext.players.length;
+    actionStream.setConfiguredTeamPlayerCount(configuredTeamPlayerCount);
+    appLog.fine('Team context updated: ${teamContext.toString()}');
   }
 
-  void setPaddle(Paddle paddle) {
-    _paddle = paddle;
-    appLog.fine('Paddle set for team ${actionStream.teamId}');
-  }
+  /// Get current team context
+  TeamContext get teamContext => _teamContext;
 
   void _updatePaddleThrust(TeamThrust thrust) {
-    if (_paddle == null) {
-      appLog.warning('Attempted to update paddle thrust but paddle is null');
-      return;
-    }
-
     // Update paddle with new thrust values
-    final totalThrust = _paddle!.setThrust(
+    final totalThrust = world.paddle.setThrust(
       thrust.leftThrust,
       thrust.rightThrust,
     );
@@ -69,18 +83,26 @@ class WorldController with AppLogging {
     appLog.finest('Updated paddle thrust: ${thrust.toString()}');
   }
 
-  Paddle get paddle {
-    if (_paddle == null) {
-      appLog.warning('Paddle is not set for team ${actionStream.teamId}');
-      throw StateError('Paddle is not set');
-    }
-    return _paddle!;
+  void stopMovement() {
+    world.ball.body.linearVelocity = Vector2.zero();
+    world.ball.body.angularVelocity = 0.0;
+    world.paddle.body.linearVelocity = Vector2.zero();
+    world.paddle.body.angularVelocity = 0.0;
   }
+
+  Paddle get paddle => world.paddle;
 
   double levelProgress(double position) {
     // Calculate progress based on paddle position
     final progress = position.abs() / world.level.verticalMultiplier;
     return progress.clamp(0.0, 1.0);
+  }
+
+  @override
+  void reset() {
+    world.reset();
+    actionStream.clearAllActions();
+    appLog.fine('WorldController reset for team ${actionStream.teamId}');
   }
 
   void dispose() {

@@ -68,7 +68,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   bool _gameActive = false;
   bool _gameStarting = false;
   bool _coordinatedStartInitiated = false;
-  String? _deviceId;
+  late String _deviceId;
   String? _deviceUId;
   String? _deviceName;
   DateTime? _scheduledStartTime;
@@ -82,7 +82,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   void Function(List<double>)? _onPhysicsDataReceived;
 
   // Game action streaming
-  ActionStreamManager? _actionManager;
+  final ActionStreamManager _actionManager;
 
   // Getters
   bool get isInitialized => _isInitialized;
@@ -90,7 +90,13 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   bool get networkingEnabled => _networkingEnabled;
   bool get gameActive => _gameActive;
   bool get gameStarting => _gameStarting;
-  String? get deviceId => _deviceId;
+  String get deviceId {
+    if (!_isInitialized) {
+      throw StateError('NetworkCoordinator not initialized');
+    }
+    return _deviceId;
+  }
+
   String? get deviceUId => _deviceUId;
   String? get deviceName => _deviceName;
   DateTime? get scheduledStartTime => _scheduledStartTime;
@@ -98,13 +104,24 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   List<Node> get connectedNodes => _session?.connectedNodes ?? [];
   List<PlayerAssignment> get playerAssignments =>
       _playerAssignments.values.toList();
-  PlayerAssignment? get currentPlayerAssignment =>
-      deviceUId != null ? _playerAssignments[deviceUId] : null;
+  PlayerAssignment get currentPlayerAssignment {
+    if (!_isInitialized) {
+      throw StateError('NetworkCoordinator not initialized');
+    }
+    final assignment = _playerAssignments[_deviceUId];
+    if (assignment == null) {
+      throw StateError('No player assignment for this device');
+    }
+    return assignment;
+  }
 
   LSLCoordinationSession? get coordinationSession => _session;
   ActionStreamManager? get actionManager => _actionManager;
   Map<String, dynamic>? get gameConfiguration => _gameConfiguration;
   LSLDataStream? get physicsStateStream => _physDataStream;
+
+  NetworkCoordinator(ActionStreamManager? actionManager)
+    : _actionManager = actionManager ?? ActionStreamManager();
 
   /// Initialize with networking enabled/disabled
   Future<void> initialize({bool enableNetworking = true}) async {
@@ -134,7 +151,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       _deviceUId = RiseTogetherNetworkConfig.generateDeviceUId();
       final thisNodeConfig = NodeConfig(
         name: _deviceName!,
-        id: _deviceId!,
+        id: _deviceId,
         uId: _deviceUId!,
         capabilities: {NodeCapability.coordinator, NodeCapability.participant},
       );
@@ -180,7 +197,6 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       _setupEventListeners();
       _setupGameActionManager();
 
-      _isInitialized = true;
       appLog.info(
         'NetworkCoordinator initialized - Role: ${isCoordinator ? "Coordinator" : "Participant"}',
       );
@@ -189,7 +205,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       if (isCoordinator) {
         _setupDefaultAssignments();
       }
-
+      _isInitialized = true;
       notifyListeners();
     } catch (e) {
       appLog.severe('Failed to initialize NetworkCoordinator: $e');
@@ -206,7 +222,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
     // Add local player assignment
     _playerAssignments[_deviceUId!] = PlayerAssignment(
-      nodeId: _deviceId!,
+      nodeId: _deviceId,
       nodeName: _deviceName!,
       teamId: 0,
       playerId: 'currentPlayer',
@@ -217,7 +233,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   }
 
   void _setupGameActionManager() {
-    _actionManager = ActionStreamManager();
+    // _actionManager = ActionStreamManager();
     appLog.info('Game action manager initialized');
   }
 
@@ -317,7 +333,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     });
   }
 
-  void _handleCoordinationMessage(UserCoordinationMessage message) {
+  Future<void> _handleCoordinationMessage(
+    UserCoordinationMessage message,
+  ) async {
     switch (message.messageId) {
       case 'player_assignments':
         if (!isCoordinator) {
@@ -339,7 +357,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
             // Store team player counts for game configuration
             if (teamCountsData != null) {
-              final currentConfig = _gameConfiguration ?? <String, dynamic>{};
+              final currentConfig = getEffectiveGameConfiguration();
               currentConfig['teams'] = Map<String, int>.from(teamCountsData);
               _gameConfiguration = currentConfig;
               appLog.info('Updated team player counts: $teamCountsData');
@@ -360,7 +378,30 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
         break;
       case 'game_configuration':
         if (!isCoordinator) {
-          _gameConfiguration = Map<String, dynamic>.from(message.payload);
+          final receivedConfig = Map<String, dynamic>.from(message.payload);
+          // Apply config to appSettings
+          if (receivedConfig.isEmpty) {
+            appLog.warning(
+              'Received null game configuration from coordinator - ignoring',
+            );
+            return;
+          }
+          appLog.info("Received game configuration: $receivedConfig");
+          _gameConfiguration ??= getEffectiveGameConfiguration();
+          for (final receivedSettings in receivedConfig.entries) {
+            _gameConfiguration![receivedSettings.key] = receivedSettings.value;
+            if (!appSettings.hasGroup(receivedSettings.key)) {
+              appLog.warning(
+                'Received unknown configuration group: ${receivedSettings.key} - ignoring',
+              );
+              continue;
+            }
+            final group = appSettings.getGroup(receivedSettings.key);
+            appLog.info(
+              'Applying configuration group: ${receivedSettings.key} with settings: ${receivedSettings.value}',
+            );
+            await group.updateFromMap(receivedSettings.value);
+          }
           appLog.info('Received game configuration from coordinator');
           appLog.info(
             'Configuration keys: ${_gameConfiguration!.keys.toList()}',
@@ -434,7 +475,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
     // Listen for incoming game actions
     _gameDataStream!.inbox.listen((message) {
-      if (!_gameActive || _actionManager == null) {
+      if (!_gameActive) {
         return;
       }
 
@@ -448,7 +489,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
           final action = PaddleAction.values[actionIndex];
           final playerId = 'remote_player_$playerIdHash';
 
-          final teamStream = _actionManager!.getTeamStream(teamId);
+          final teamStream = _actionManager.getTeamStream(teamId);
           if (teamStream != null) {
             teamStream.addAction(GameAction(playerId, action));
           }
@@ -488,7 +529,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   }
 
   Future<void> processPendingInputs() async {
-    if (!_inputAvailable || _gameDataStream == null || _actionManager == null) {
+    if (!_inputAvailable || _gameDataStream == null) {
       return;
     }
   }
@@ -675,7 +716,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
   void _setupDefaultAssignments() {
     _playerAssignments[_deviceUId!] = PlayerAssignment(
-      nodeId: _deviceId!,
+      nodeId: _deviceId,
       nodeName: _deviceName!,
       teamId: 0,
       playerId: 'currentPlayer',
@@ -687,7 +728,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   }
 
   /// Assign a node to a team (coordinator only)
-  void assignNodeToTeam(String nodeId, int teamId) {
+  Future<void> assignNodeToTeam(String nodeId, int teamId) async {
     if (_networkingEnabled && !isCoordinator) {
       appLog.warning('Only coordinator can assign teams');
       return;
@@ -711,13 +752,13 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     );
 
     if (_networkingEnabled) {
-      _broadcastAssignments();
+      await _broadcastAssignments();
     }
     notifyListeners();
   }
 
   /// Unassign a node from any team (coordinator only)
-  void unassignNode(String nodeId) {
+  Future<void> unassignNode(String nodeId) async {
     if (_networkingEnabled && !isCoordinator) {
       appLog.warning('Only coordinator can unassign teams');
       return;
@@ -732,13 +773,13 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       );
 
       if (_networkingEnabled) {
-        _broadcastAssignments();
+        await _broadcastAssignments();
       }
       notifyListeners();
     }
   }
 
-  void _broadcastAssignments() {
+  Future<void> _broadcastAssignments() async {
     if (!isCoordinator || _session == null) return;
 
     // Calculate team player counts
@@ -753,7 +794,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       'team_counts': teamCounts,
     };
 
-    _session!.sendUserMessage(
+    await _session!.sendUserMessage(
       'player_assignments',
       'Player team assignments update',
       assignmentData,
@@ -786,6 +827,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
     // Store the configuration locally
     _gameConfiguration = Map<String, dynamic>.from(config);
+    _gameConfiguration = getEffectiveGameConfiguration();
     appLog.info('Game configuration set: ${config.keys.toList()}');
 
     // Broadcast to all participants if networking is enabled
@@ -805,13 +847,22 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
   /// Get the current game configuration with fallbacks
   Map<String, dynamic> getEffectiveGameConfiguration() {
-    // If we have received/set configuration, use it
-    if (_gameConfiguration != null) {
-      return Map<String, dynamic>.from(_gameConfiguration!);
-    }
+    // Always start with default configuration to ensure all settings groups are included
+    final defaultConfig = getDefaultGameConfiguration();
 
-    // Fallback to default configuration
-    return getDefaultGameConfiguration();
+    // If we have received/set configuration, merge it with defaults
+    if (_gameConfiguration != null) {
+      final mergedConfig = Map<String, dynamic>.from(defaultConfig);
+      // Override with any explicitly set configuration
+      for (final entry in _gameConfiguration!.entries) {
+        mergedConfig[entry.key] = entry.value;
+      }
+      print('Effective game configuration: $mergedConfig');
+      return mergedConfig;
+    }
+    // Use default configuration
+    print('Using default game configuration: $defaultConfig');
+    return defaultConfig;
   }
 
   /// Get team player counts for thrust calculation
@@ -839,7 +890,8 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
     // Export colors and physics settings as-is
     config['colors'] = appSettings.getGroup('colors').toMap();
-    config['physics'] = appSettings.getGroup('physics').toMap();
+    final physicsSettings = appSettings.getGroup('physics').toMap();
+    config['physics'] = physicsSettings;
     config['network'] = appSettings.getGroup('network').toMap();
 
     // Add coordinator-specific info (device info from device group)
@@ -899,22 +951,19 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     }
 
     // Set up default game configuration if none exists
-    if (_gameConfiguration == null) {
-      _gameConfiguration = getDefaultGameConfiguration();
-      appLog.info('Using default game configuration');
-    }
+    _gameConfiguration = getEffectiveGameConfiguration();
 
     // Broadcast current game configuration and team assignments
     if (_networkingEnabled && _session != null) {
       // Send configuration
-      _session!.sendUserMessage(
+      await _session!.sendUserMessage(
         'game_configuration',
         'Game configuration from coordinator',
         _gameConfiguration!,
       );
 
       // Ensure team assignments are also broadcasted
-      _broadcastAssignments();
+      await _broadcastAssignments();
 
       appLog.info('Broadcasted configuration and assignments to participants');
 
@@ -1102,27 +1151,6 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     appLog.info('Physics state broadcast stopped');
   }
 
-  /// Wait for nodes to join
-  Future<List<Node>> waitForNodes(int minNodes, {Duration? timeout}) async {
-    if (!_networkingEnabled || _session == null) {
-      return connectedNodes;
-    }
-    await _session!.waitForMinNodes(minNodes, timeout: timeout);
-    return connectedNodes;
-  }
-
-  /// Get coordinator node
-  Node? getCoordinator() {
-    if (!_networkingEnabled || _session == null) {
-      return connectedNodes.isNotEmpty ? connectedNodes.first : null;
-    }
-
-    return connectedNodes.firstWhere(
-      (node) => node.uId == _session!.coordinatorUId,
-      orElse: () => connectedNodes.first,
-    );
-  }
-
   @override
   void dispose() {
     _nodeJoinedSub?.cancel();
@@ -1132,7 +1160,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     _streamReadySub?.cancel();
     _streamStopSub?.cancel();
     _statebroadcastTimer?.cancel();
-    _actionManager?.dispose();
+    // _actionManager?.dispose();
     _session?.dispose();
     _isInitialized = false;
     super.dispose();

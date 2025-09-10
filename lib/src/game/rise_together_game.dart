@@ -2,13 +2,10 @@ import 'package:flame/camera.dart';
 import 'package:flame/components.dart';
 import 'package:flame/flame.dart';
 import 'package:flame/game.dart';
-import 'package:flame/layers.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:logging/logging.dart' show Level;
-import 'package:rise_together/src/components/paddle.dart';
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -22,6 +19,7 @@ import 'package:rise_together/src/attributes/resetable.dart';
 // import 'package:rise_together/src/attributes/team_provider.dart';
 import 'package:rise_together/src/services/network_coordinator.dart'
     show PlayerAssignment, NetworkCoordinator;
+import 'package:rise_together/src/models/team_context.dart';
 import 'rise_together_world.dart';
 import 'dart:collection';
 
@@ -134,23 +132,25 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   static const int STATE_BUFFER_SIZE = 3; // Keep 3 frames for interpolation
 
   // Team player counts for thrust calculation (received from coordinator)
-  Map<String, int>? _teamPlayerCounts;
+  final Map<String, int> _teamPlayerCounts = {};
 
-  final List<RiseTogetherWorld> worlds = [];
+  // final List<RiseTogetherWorld> worlds = [];
   final List<CameraComponent> cameras = [];
-  final List<WorldController> worldControllers = [];
-  final List<Paddle> paddles = [];
+  final Map<TeamDisplayPosition, WorldController> worldControllers = {};
+  // final List<Paddle> paddles = [];
 
   // @override
   // PlayerContext get playerContext => _playerContext;
 
-  ActionStreamManager get actionManager => _actionProvider!.actionManager;
+  // ActionStreamManager get actionManager => _actionProvider!.actionManager;
+
+  final ActionStreamManager actionManager;
 
   final isGameOver = false;
 
   final RiseTogetherLevel level;
 
-  RiseTogetherGame({this.level = const Level1()})
+  RiseTogetherGame({this.level = const Level1(), required this.actionManager})
     : super(gravity: Vector2.zero(), zoom: 10) {
     paused = true; // Start paused
   }
@@ -181,7 +181,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       'Game role - isCoordinator: ${actionProvider.isCoordinator}, deviceId: ${(actionProvider is NetworkActionProvider) ? actionProvider.networkCoordinator.deviceId : 'local'}',
     );
 
-    await _initializeActionSystem();
+    // await _initializeActionSystem();
 
     // Load game configuration from network coordinator if available
     if (actionProvider is NetworkActionProvider) {
@@ -262,42 +262,6 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   PlayerAssignment? get currentPlayerAssignment =>
       isConfigured ? _actionProvider!.currentPlayerAssignment : null;
 
-  /// Get team mapping where player's team is always on the left (index 0)
-  /// Returns a map: displayIndex -> actualTeamId
-  Map<int, int> get teamDisplayMapping {
-    final playerAssignment = currentPlayerAssignment;
-    if (playerAssignment == null) {
-      // Default mapping when no assignment is available
-      return {0: 0, 1: 1};
-    }
-
-    final playerTeamId = playerAssignment.teamId;
-    final opponentTeamId = playerTeamId == 0 ? 1 : 0;
-
-    // Player's team is always shown on left (display index 0)
-    // Opponent's team is always shown on right (display index 1)
-    return {
-      0: playerTeamId, // Left display = player's actual team
-      1: opponentTeamId, // Right display = opponent's actual team
-    };
-  }
-
-  /// Get the actual team ID for a display position (0=left, 1=right)
-  int getActualTeamId(int displayIndex) {
-    return teamDisplayMapping[displayIndex] ?? displayIndex;
-  }
-
-  /// Get the display index for an actual team ID
-  int getDisplayIndex(int actualTeamId) {
-    final mapping = teamDisplayMapping;
-    for (final entry in mapping.entries) {
-      if (entry.value == actualTeamId) {
-        return entry.key;
-      }
-    }
-    return actualTeamId; // Fallback
-  }
-
   /// Get all players sorted by team then alphabetically with their bitflag values
   /// Returns a list of maps with nodeId, teamId, playerId, and bitflagValue (2^index)
   List<Map<String, dynamic>> getAllPlayersBitflags() {
@@ -355,24 +319,142 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   void _updateCurrentBitflags() {
     if (!_isAuthoritativePhysics) return;
 
-    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
-      final actualTeamId = getActualTeamId(displayIndex);
-      final teamStream = actionManager.getTeamStream(actualTeamId);
+    for (final worldController in worldControllers.values) {
+      final teamId = worldController.teamContext.teamId;
+
+      final teamStream = actionManager.getTeamStream(teamId);
       final thrust = teamStream?.getCurrentThrust();
 
       if (thrust != null) {
-        // final prevLeft = _bitflagsNotifier.getLeftBitflags(actualTeamId);
-        // final prevRight = _bitflagsNotifier.getRightBitflags(actualTeamId);
-
         // Update bitflags in notifier (will notify if changed)
         _bitflagsNotifier.updateBitflags(
-          actualTeamId,
+          teamId,
           thrust.leftBitflags,
           thrust.rightBitflags,
         );
       }
     }
   }
+
+  /// Update team contexts for all world controllers when assignments change
+  /// this needs to change to only update things that need changing when
+  /// the team changes.
+  /// TODO: This is pretty disgusting. FIX!
+  void _updateTeamContexts() {
+    final myTeamId = _actionProvider!.currentPlayerAssignment.teamId;
+    final myTeam = Team.fromId(myTeamId);
+    final opponentTeam = myTeam.opponent;
+    final myTeamPlayers = _actionProvider!.playerAssignments
+        .where((p) => p.teamId == myTeamId)
+        .toList();
+    final opponentTeamPlayers = _actionProvider!.playerAssignments
+        .where((p) => p.teamId != myTeamId)
+        .toList();
+
+    final myTeamStream = actionManager.getTeamStream(myTeamId)!;
+    final opponentTeamStream = actionManager.getTeamStream(opponentTeam.id)!;
+
+    final TeamContext myTeamContext;
+    final TeamContext opponentTeamContext;
+    final leftWorldController = worldControllers[TeamDisplayPosition.left];
+    final rightWorldController = worldControllers[TeamDisplayPosition.right];
+    if (myTeamStream.position != TeamDisplayPosition.left) {
+      // need to swap.
+      myTeamStream.position = TeamDisplayPosition.left;
+      opponentTeamStream.position = TeamDisplayPosition.right;
+      myTeamContext = rightWorldController!.teamContext;
+      opponentTeamContext = leftWorldController!.teamContext;
+    } else {
+      myTeamContext = leftWorldController!.teamContext;
+      opponentTeamContext = rightWorldController!.teamContext;
+    }
+
+    myTeamContext.isPlayerTeam = true;
+    myTeamContext.displayPosition = TeamDisplayPosition.left;
+    myTeamContext.assign(myTeamPlayers);
+
+    opponentTeamContext.isPlayerTeam = false;
+    opponentTeamContext.displayPosition = TeamDisplayPosition.right;
+    opponentTeamContext.assign(opponentTeamPlayers);
+
+    appLog.info(
+      'Updated team contexts: Left=${myTeamContext.teamId} (${myTeamContext.players.length} players), Right=${opponentTeamContext.teamId} (${opponentTeamContext.players.length} players)',
+    );
+
+    leftWorldController.setTeamContext(myTeamContext);
+    rightWorldController.setTeamContext(opponentTeamContext);
+    // for (final worldController in worldControllers) {
+    //   // Update team context (for colors, display text, etc.)
+    //   // worldController.setTeamContext(teamContext);
+
+    //   // Re-route ActionStream: get the stream for this team's actual ID
+    //   final teamId = worldController.teamContext.teamId;
+    //   final teamStream = actionManager.getTeamStream(teamId);
+    //   if (teamStream != null) {
+    //     // Update player count configuration
+    //     final configuredPlayerCount = _teamPlayerCounts[teamId.toString()] ?? 5;
+
+    //     teamStream.setConfiguredTeamPlayerCount(configuredPlayerCount);
+
+    //     // Re-route the ActionStream to this WorldController
+    //     worldController.setActionStream(teamStream);
+
+    //     appLog.info(
+    //       'Re-routed ActionStream[team $teamId] -> WorldController[displayIndex ${teamStream.position}] with $configuredPlayerCount players',
+    //     );
+    //   } else {
+    //     appLog.warning('No ActionStream found for team $teamId');
+    //   }
+    // }
+
+    //   appLog.info(
+    //     'Updated team context for displayIndex $displayIndex: $teamContext',
+    //   );
+    // }
+
+    // appLog.info('Team contexts updated for ${teamContexts.length} worlds');
+  }
+
+  /// Build team contexts for current player assignment
+  /// Returns [playerTeamContext, opponentTeamContext] (left, right)
+  // List<TeamContext> _buildTeamContexts() {
+  //   final playerAssignment = currentPlayerAssignment;
+
+  //   if (playerAssignment == null || _actionProvider is! NetworkActionProvider) {
+  //     // Fallback for local mode or when no assignment
+  //     return [
+  //       TeamContext.playerTeam(absoluteTeamId: 0, players: []),
+  //       TeamContext.opponentTeam(absoluteTeamId: 1, players: []),
+  //     ];
+  //   }
+
+  //   final networkProvider = _actionProvider as NetworkActionProvider;
+  //   final allPlayers = networkProvider.networkCoordinator.playerAssignments;
+
+  //   final playerTeamId = playerAssignment.teamId;
+  //   final opponentTeamId = playerTeamId == 0 ? 1 : 0;
+
+  //   // Split players by team
+  //   final playerTeamPlayers = allPlayers
+  //       .where((p) => p.teamId == playerTeamId)
+  //       .toList();
+  //   final opponentTeamPlayers = allPlayers
+  //       .where((p) => p.teamId == opponentTeamId)
+  //       .toList();
+
+  //   return [
+  //     // Left display = player team (always)
+  //     TeamContext.playerTeam(
+  //       absoluteTeamId: playerTeamId,
+  //       players: playerTeamPlayers,
+  //     ),
+  //     // Right display = opponent team (always)
+  //     TeamContext.opponentTeam(
+  //       absoluteTeamId: opponentTeamId,
+  //       players: opponentTeamPlayers,
+  //     ),
+  //   ];
+  // }
 
   /// Get player bitflags mapping by playerId (for action system)
   Map<String, int> _getPlayerBitflagsMap() {
@@ -431,17 +513,10 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   void clearTeamActions(RiseTogetherWorld world) {
     if (!isConfigured) return;
 
-    // Find which display index this world belongs to
-    final displayIndex = worlds.indexOf(world);
-    if (displayIndex == -1) {
-      appLog.warning('Could not find world in worlds list for action clearing');
-      return;
-    }
+    final worldController = world.controller;
+    final teamId = worldController.teamContext.teamId;
 
-    final actualTeamId = getActualTeamId(displayIndex);
-    appLog.info(
-      'Clearing actions for team $actualTeamId (displayIndex: $displayIndex)',
-    );
+    appLog.info('Clearing actions for team $teamId');
 
     // Clear actions for the affected team
     if (isCoordinator && _actionProvider is NetworkActionProvider) {
@@ -450,19 +525,19 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
           networkProvider.networkCoordinator.playerAssignments;
 
       // First clear the local action stream for this team
-      final teamStream = actionManager.getTeamStream(actualTeamId);
+      final teamStream = actionManager.getTeamStream(teamId);
       teamStream?.clearAllActions();
 
       // Then send "none" action to participants on this team
       for (final assignment in playerAssignments) {
-        if (assignment.teamId == actualTeamId && !assignment.isCoordinator) {
+        if (assignment.teamId == teamId && !assignment.isCoordinator) {
           // Use nodeId (UUID) for consistency with UI actions
-          sendAction(actualTeamId, assignment.nodeId, PaddleAction.none);
+          sendAction(teamId, assignment.nodeId, PaddleAction.none);
         }
       }
     } else if (_actionProvider is LocalActionProvider) {
       // For local mode, clear actions directly
-      final teamStream = actionManager.getTeamStream(actualTeamId);
+      final teamStream = actionManager.getTeamStream(teamId);
       teamStream?.clearAllActions();
     }
   }
@@ -485,13 +560,13 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     return colors[playerIndex % colors.length];
   }
 
-  List<Forge2DWorld> _buildWorlds() {
-    for (int i = 0; i < nTeams; i++) {
-      final world = RiseTogetherWorld(level: level, left: i == 0);
-      worlds.add(world);
-    }
-    return worlds;
-  }
+  // List<Forge2DWorld> _buildWorlds() {
+  //   for (int i = 0; i < nTeams; i++) {
+  //     final world = RiseTogetherWorld(level: level, left: i == 0);
+  //     worlds.add(world);
+  //   }
+  //   return worlds;
+  // }
 
   RectangleComponent viewportRimGenerator(
     Vector2 viewportSize, {
@@ -514,183 +589,134 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     );
   }
 
-  List<CameraComponent> _buildCameras(List<Forge2DWorld> worlds) {
-    final viewportSize = alignedVector(longMultiplier: 1 / nTeams);
+  CameraComponent _buildCamera(
+    RiseTogetherWorld world,
+    TeamDisplayPosition pos,
+  ) {
+    final viewportSize = alignedVector(longMultiplier: 1 / 2);
     final zoomLevel = viewportSize.x / level.horizontalWidth;
-    for (int displayIndex = 0; displayIndex < worlds.length; displayIndex++) {
-      // displayIndex 0 = left side (player's team), displayIndex 1 = right side (opponent's team)
-      final isPlayerTeam =
-          displayIndex == 0; // Left side is always player's team
-      final cameraPos = alignedVector(
-        longMultiplier: displayIndex == 0
-            ? 0.0
-            : 0.5, // Left = 0.0, Right = 0.5
-        shortMultiplier: 0.0,
-      );
+    final cameraPos = alignedVector(
+      longMultiplier: pos == TeamDisplayPosition.left
+          ? 0.0
+          : 0.5, // Left = 0.0, Right = 0.5
+      shortMultiplier: 0.0,
+    );
 
-      final worldCamera =
-          CameraComponent(
-              world: worlds[displayIndex],
-              viewport: FixedSizeViewport(viewportSize.x, viewportSize.y)
-                ..position = cameraPos
-                //..size = Vector2(size.x / 2, size.y)
-                ..addAll([
-                  viewportRimGenerator(viewportSize),
-                  if (!isPlayerTeam)
-                    viewportRimGenerator(viewportSize, overlay: true),
-                ]),
-            )
-            ..viewfinder.anchor = Anchor.center
-            ..viewfinder.zoom = zoomLevel;
-      cameras.add(worldCamera);
-      (worlds[displayIndex] as RiseTogetherWorld).setWorldCamera(worldCamera);
-    }
-    return cameras;
+    final worldCamera =
+        CameraComponent(
+            world: world,
+            viewport: FixedSizeViewport(viewportSize.x, viewportSize.y)
+              ..position = cameraPos
+              //..size = Vector2(size.x / 2, size.y)
+              ..addAll([
+                if (pos == TeamDisplayPosition.right)
+                  viewportRimGenerator(viewportSize, overlay: true),
+              ]),
+          )
+          ..viewfinder.anchor = Anchor.center
+          ..viewfinder.zoom = zoomLevel;
+    // cameras.add(worldCamera);
+    // worlds[displayIndex].setWorldCamera(worldCamera);
+    world.setWorldCamera(worldCamera);
+    return worldCamera;
   }
 
-  Future<void> _addPaddles({bool force = false}) async {
-    if (paddles.isNotEmpty && !force) {
-      appLog.warning('Paddles already added, skipping paddle creation');
-      return;
-    } else {
-      for (final paddle in paddles) {
-        paddle.removeFromParent();
-      }
-      paddles.clear();
-    }
-    for (int i = 0; i < cameras.length; i++) {
-      final camera = cameras[i];
-      final world = camera.world as RiseTogetherWorld;
-      final paddle = world.buildPaddle(
-        widthMultiplier: appSettings.getDouble(
-          'physics.paddle_width_multiplier',
-        ),
-      );
-      world.add(paddle);
-
-      // wait for the paddle to be loaded
-      await paddle.loaded;
-      paddles.add(paddle);
-      appLog.fine('Adding paddle to camera: ${camera.hashCode}');
-      camera.follow(paddle);
-
-      if (!force) {
-        final ball = world.buildBall();
-        world.add(ball);
-        await ball.loaded;
-        // Set starting height for distance tracking
-        final ballStartHeight = ball.body.position.y;
-        final actualTeamId = getActualTeamId(i);
-        final team = Team.fromId(actualTeamId);
-        distanceTracker.setStartingHeight(actualTeamId, ballStartHeight);
-        appLog.info(
-          'Display position $i (${team.shortName}) ball starting height: $ballStartHeight',
-        );
-      }
-
-      // Connect to existing world controllers if they exist (for paddle recreation)
-      if (force && worldControllers.length > i) {
-        worldControllers[i].setPaddle(paddles[i]);
-        appLog.fine('Reconnected world controller $i to new paddle');
-      }
-    }
-  }
-
-  Future<void> _initializeActionSystem() async {
-    appLog.fine('Initializing action system');
-
-    // Clean up existing world controllers
-    for (final worldController in worldControllers) {
-      appLog.fine(
-        'Disposing existing WorldController: ${worldController.hashCode} for team ${worldController.actionStream.teamId}',
-      );
-      worldController.actionStream.dispose();
-      worldController.dispose();
-    }
-    worldControllers.clear();
-
-    // Create team streams and world controllers using injected action manager
-    // Use display-based indexing (0=left/player, 1=right/opponent)
-    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
-      final actualTeamId = getActualTeamId(displayIndex);
-      final currentPlayerTeam = currentPlayerAssignment?.teamId;
-
-      appLog.info(
-        'WORLD MAPPING: displayIndex=$displayIndex -> actualTeamId=$actualTeamId (camera pos=${displayIndex == 0 ? "LEFT" : "RIGHT"}) | PlayerTeam=$currentPlayerTeam',
-      );
-
-      final teamStream = actionManager.createTeamStream(
-        actualTeamId,
-        5, // max 5 players per team
-        getPlayerBitflags: _getPlayerBitflagsMap,
-      );
-      // Get configured team player count (defaults to 5 if not configured)
-      final configuredPlayerCount = _teamPlayerCounts != null
-          ? _teamPlayerCounts![actualTeamId.toString()] ?? 5
-          : 5;
-
-      // Set the configured team player count for proper thrust calculation
-      teamStream.setConfiguredTeamPlayerCount(configuredPlayerCount);
-
-      final worldController = WorldController(
-        world: worlds[displayIndex],
-        actionStream: teamStream,
-        shouldUpdateParallax:
-            _isAuthoritativePhysics, // Only coordinator updates parallax via WorldController
-        configuredTeamPlayerCount: configuredPlayerCount,
-      );
-
-      // Connect paddle if it exists
-      if (displayIndex < paddles.length) {
-        worldController.setPaddle(paddles[displayIndex]);
-      }
-
-      worldControllers.add(worldController);
-      worldController.initialize();
-    }
-
-    // Check if current assignments match the display mapping and swap streams if needed
-    if (currentPlayerAssignment != null) {
-      final playerTeam = currentPlayerAssignment!.teamId;
-      final expectedPlayerDisplayTeam = getActualTeamId(
-        0,
-      ); // Left should be player's team
-
-      appLog.info(
-        'STREAM MAPPING CHECK: PlayerTeam=$playerTeam, LeftDisplayTeam=$expectedPlayerDisplayTeam',
-      );
-
-      // If player team is not on the left (display index 0), swap the streams
-      if (playerTeam != expectedPlayerDisplayTeam &&
-          worldControllers.length >= 2) {
-        appLog.info(
-          'SWAPPING STREAMS: Player team $playerTeam should be on left, swapping streams',
-        );
-
-        final stream0 = worldControllers[0].actionStream;
-        final stream1 = worldControllers[1].actionStream;
-
-        worldControllers[0].setActionStream(stream1);
-        worldControllers[1].setActionStream(stream0);
-
-        appLog.info(
-          'STREAMS SWAPPED: Left now gets team ${stream1.teamId}, Right now gets team ${stream0.teamId}',
-        );
-      }
-    }
-
-    appLog.fine(
-      'Action system initialized with ${worldControllers.length} world controllers',
+  Future<void> _buildComponents(WorldController worldController) async {
+    final widthMultiplier = appSettings.getDouble(
+      'physics.paddle_width_multiplier',
+    );
+    await worldController.world.buildPaddle(widthMultiplier: widthMultiplier);
+    final ball = await worldController.world.buildBall();
+    final ballStartHeight = ball.body.position.y;
+    distanceTracker.setStartingHeight(
+      worldController.teamContext.teamId,
+      ballStartHeight,
     );
   }
 
+  // Future<void> _initializeActionSystem() async {
+  //   appLog.fine('Initializing action system');
+
+  //   // Clean up existing world controllers
+  //   for (final worldController in worldControllers) {
+  //     appLog.fine(
+  //       'Disposing existing WorldController: ${worldController.hashCode} for team ${worldController.actionStream.teamId}',
+  //     );
+  //     worldController.actionStream.dispose();
+  //     worldController.dispose();
+  //   }
+  //   worldControllers.clear();
+
+  //   // Create ActionStreams for both teams (by actual team ID)
+  //   final Map<int, TeamActionStream> actionStreams = {};
+  //   for (int teamId = 0; teamId < nTeams; teamId++) {
+  //     final configuredPlayerCount = _teamPlayerCounts != null
+  //         ? _teamPlayerCounts![teamId.toString()] ?? 5
+  //         : 5;
+
+  //     final teamStream = actionManager.createTeamStream(
+  //       teamId,
+  //       5, // max 5 players per team
+  //       getPlayerBitflags: _getPlayerBitflagsMap,
+  //     );
+  //     teamStream.setConfiguredTeamPlayerCount(configuredPlayerCount);
+  //     actionStreams[teamId] = teamStream;
+  //     appLog.fine(
+  //       'Created ActionStream for team $teamId with $configuredPlayerCount players',
+  //     );
+  //   }
+
+  //   // Create team contexts and WorldControllers for fixed display positions
+  //   final teamContexts = _buildTeamContexts();
+
+  //   for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
+  //     final teamContext = teamContexts[displayIndex];
+  //     final teamId = teamContext.absoluteTeamId;
+
+  //     // Get the ActionStream for this team's actual ID
+  //     final teamStream = actionStreams[teamId]!;
+  //     final configuredPlayerCount = _teamPlayerCounts != null
+  //         ? _teamPlayerCounts![teamId.toString()] ?? 5
+  //         : 5;
+
+  //     appLog.info(
+  //       'ROUTING: displayIndex=$displayIndex (${displayIndex == 0 ? 'LEFT' : 'RIGHT'}) <- ActionStream[team $teamId] | ${teamContext.toString()}',
+  //     );
+
+  //     final worldController = WorldController(
+  //       world: worlds[displayIndex],
+  //       actionStream: teamStream,
+  //       shouldUpdateParallax:
+  //           _isAuthoritativePhysics, // Only coordinator updates parallax via WorldController
+  //       configuredTeamPlayerCount: configuredPlayerCount,
+  //       teamContext: teamContext,
+  //     );
+
+  //     // Connect paddle if it exists
+  //     if (displayIndex < paddles.length) {
+  //       worldController.setPaddle(paddles[displayIndex]);
+  //     }
+
+  //     worldControllers.add(worldController);
+  //     worldController.initialize();
+  //   }
+
+  //   // No need for stream swapping - TeamContext ensures correct mapping from start
+
+  //   appLog.fine(
+  //     'Action system initialized with ${worldControllers.length} world controllers',
+  //   );
+  // }
+
   @override
   Future<void> onLoad() async {
-    appLog.setMinLevel(Level.INFO);
+    appLog.setMinLevel(Level.ALL);
     appLog.fine('RiseTogetherGame onLoad called');
     // Ensure game settings store is loaded
     await initSettings();
     appLog.fine('App settings initialized: $appSettings');
+
+    // set initial physics state
 
     // Note: Game-specific configuration will be loaded during configure()
     // Initialize with default values for now
@@ -711,96 +737,50 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     children.register<CameraComponent>();
     await Flame.images.load('ball.png');
 
-    _buildCameras(_buildWorlds());
-    addAll(worlds);
-    addAll(cameras);
-    await _addPaddles();
+    _setupWorld(TeamDisplayPosition.left);
+    _setupWorld(TeamDisplayPosition.right);
 
     appLog.fine('Game assets loaded, ready for configuration');
   }
 
-  @override
-  KeyEventResult onKeyEvent(
-    KeyEvent event,
-    Set<LogicalKeyboardKey> keysPressed,
-  ) {
-    super.onKeyEvent(event, keysPressed);
-    if (!isLoaded || !isConfigured) {
-      return KeyEventResult.ignored;
-    }
-
-    // Only handle keyboard input in local mode or debug mode
-    if (_shouldEnableKeyboardInput()) {
-      _handleKeyboardActions(keysPressed);
-      return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
+  Future<void> _setupWorld(TeamDisplayPosition pos) async {
+    final worldController = await _buildWorldController(pos);
+    worldControllers[pos] = worldController;
+    // first we need the camera
+    final camera = _buildCamera(worldController.world, pos);
+    // and to wait for it to be added
+    await add(camera);
+    cameras.add(camera);
+    await add(worldController.world);
+    // The components rely on the world and camera (for following the paddle).
+    await _buildComponents(worldController);
   }
 
-  /// Check if keyboard input should be enabled
-  bool _shouldEnableKeyboardInput() {
-    // Always allow in local mode (no networking)
-    if (_actionProvider is LocalActionProvider) {
-      return true;
-    }
+  Future<WorldController> _buildWorldController(TeamDisplayPosition pos) async {
+    final world = RiseTogetherWorld(level: Level1(), pos: pos);
 
-    // Allow in debug mode
-    try {
-      if (appSettings.getBool('game.debug_mode')) {
-        return true;
-      }
-    } catch (e) {
-      appLog.warning('Could not access debug_mode setting: $e');
-    }
-
-    return false;
-  }
-
-  void _handleKeyboardActions(Set<LogicalKeyboardKey> keysPressed) {
-    // Left side keyboard controls (player's team - display index 0)
-    final leftTeamId = getActualTeamId(0);
-    final leftTeam = Team.fromId(leftTeamId);
-    final playerLeft = PlayerId.fromTeamAndId(leftTeam, 'keyboard_player_left');
-    PaddleAction actionLeft = PaddleAction.none;
-
-    if (keysPressed.contains(LogicalKeyboardKey.keyA)) {
-      actionLeft = PaddleAction.left;
-    } else if (keysPressed.contains(LogicalKeyboardKey.keyD)) {
-      actionLeft = PaddleAction.right;
-    }
-
-    _actionProvider!.networkBridge.sendAction(
-      leftTeamId,
-      playerLeft.id,
-      actionLeft,
+    final teamStream = actionManager.createTeamStream(
+      pos,
+      5, // max 5 players per team
+      getPlayerBitflags: _getPlayerBitflagsMap,
     );
 
-    // Right side keyboard controls (opponent's team - display index 1)
-    final rightTeamId = getActualTeamId(1);
-    final rightTeam = Team.fromId(rightTeamId);
-    final playerRight = PlayerId.fromTeamAndId(
-      rightTeam,
-      'keyboard_player_right',
+    final teamContext = TeamContext.byPosition(pos, actionStream: teamStream);
+    final worldController = WorldController(
+      world: world,
+      shouldUpdateParallax:
+          _isAuthoritativePhysics, // Only coordinator updates parallax via WorldController
+      configuredTeamPlayerCount: 0,
+      teamContext: teamContext,
     );
-    PaddleAction actionRight = PaddleAction.none;
 
-    if (keysPressed.contains(LogicalKeyboardKey.arrowLeft)) {
-      actionRight = PaddleAction.left;
-    } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
-      actionRight = PaddleAction.right;
-    }
-
-    _actionProvider!.networkBridge.sendAction(
-      rightTeamId,
-      playerRight.id,
-      actionRight,
-    );
+    // worldController.initialize();
+    return worldController;
   }
 
   @override
   void update(double dt) {
-    if (isGameOver) {
+    if (!isLoaded || isGameOver) {
       return;
     }
 
@@ -808,11 +788,8 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     super.update(dt);
     if (!_isAuthoritativePhysics) {
       // reset ball and paddle velocities to zero
-      for (final world in worlds) {
-        world.ball.body.linearVelocity = Vector2.zero();
-        world.ball.body.angularVelocity = 0.0;
-        world.paddle.body.linearVelocity = Vector2.zero();
-        world.paddle.body.angularVelocity = 0.0;
+      for (final worldController in worldControllers.values) {
+        worldController.stopMovement();
       }
       // Non-coordinator: override physics with authoritative state from coordinator
       _interpolatePhysicsState(dt);
@@ -886,18 +863,9 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     tournamentManager.reset();
     distanceTracker.reset();
 
-    // Reset any world components that implement Resetable
-    for (final world in worlds) {
-      if (world is Resetable) {
-        (world as Resetable).reset();
-      }
-    }
-
     // Reset any world controllers that implement Resetable
-    for (final controller in worldControllers) {
-      if (controller is Resetable) {
-        (controller as Resetable).reset();
-      }
+    for (final controller in worldControllers.values) {
+      (controller as Resetable).reset();
     }
 
     // Pause the engine until user starts again
@@ -911,7 +879,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     appLog.info('Loading game configuration from network coordinator');
 
     final config = networkCoordinator.getEffectiveGameConfiguration();
-    appLog.info('Received configuration keys: ${config.keys.toList()}');
+    appLog.info('Cached configuration keys: ${config.keys.toList()}');
 
     // Apply configuration groups using the new updateFromMap API
     if (config.containsKey('game')) {
@@ -943,40 +911,38 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
     // Store team player counts for thrust calculation
     if (config.containsKey('teams')) {
-      _teamPlayerCounts = Map<String, int>.from(config['teams']);
+      _teamPlayerCounts.clear();
+      _teamPlayerCounts.addAll(Map<String, int>.from(config['teams']));
+      // Update team contexts to apply new player counts
       appLog.info('Received team player counts: $_teamPlayerCounts');
-
-      // Update existing TeamActionStreams with correct team player counts
-      for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
-        final actualTeamId = getActualTeamId(displayIndex);
-        final configuredPlayerCount =
-            _teamPlayerCounts![actualTeamId.toString()] ?? 5;
-        final teamStream = actionManager.getTeamStream(actualTeamId);
-        teamStream?.setConfiguredTeamPlayerCount(configuredPlayerCount);
-
-        // Also update WorldController if it exists
-        if (displayIndex < worldControllers.length) {
-          // Note: WorldController configuredTeamPlayerCount is final, can't update
-          // This is why we need to recreate them or use the ActionStream approach
-        }
-      }
     }
 
     if (config.containsKey('physics')) {
       final physicsConfig = config['physics'] as Map<String, dynamic>;
+      appLog.info(
+        '⚡ BEFORE UPDATE: paddle_width_multiplier = ${appSettings.getDouble('physics.paddle_width_multiplier')}',
+      );
+      appLog.info('⚡ UPDATING physics with: $physicsConfig');
       await appSettings.getGroup('physics').updateFromMap(physicsConfig);
+      appLog.info(
+        '⚡ AFTER UPDATE: paddle_width_multiplier = ${appSettings.getDouble('physics.paddle_width_multiplier')}',
+      );
       appLog.info('Applied physics configuration from network');
     }
 
     // Always recreate paddles after any configuration update to ensure all settings are applied
-    await _addPaddles(force: true);
-    appLog.info('Recreated paddles with updated configuration');
 
     if (config.containsKey('network')) {
       final networkConfig = config['network'] as Map<String, dynamic>;
       await appSettings.getGroup('network').updateFromMap(networkConfig);
       appLog.info('Applied network configuration from network');
     }
+
+    // Update team contexts after all configuration is loaded to ensure correct team assignments
+    _updateTeamContexts();
+
+    // await _addPaddles(force: true);
+    appLog.info('Recreated paddles with updated configuration');
 
     appLog.info('Network configuration loaded successfully');
   }
@@ -1001,7 +967,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     distanceTracker.initialize(distanceMultiplier);
 
     // Reload physics settings for each world
-    _addPaddles(force: true);
+    // await _addPaddles(force: true);
     appLog.info('Settings reloaded successfully');
   }
 
@@ -1017,19 +983,16 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
   /// Update distance tracking for all teams
   void _updateDistanceTracking() {
-    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
-      if (displayIndex < worlds.length) {
-        final world = worlds[displayIndex];
-        final actualTeamId = getActualTeamId(displayIndex);
-        if (world.ball.isMounted) {
-          final ballHeight = world.ball.position.y;
-          distanceTracker.updateBallPosition(actualTeamId, ballHeight);
+    for (final worldController in worldControllers.values) {
+      final teamId = worldController.teamContext.teamId;
+      final world = worldController.world;
 
-          // Update tournament manager with current distances
-          final distance = distanceTracker.getTeamDistance(actualTeamId);
-          tournamentManager.updateTeamDistance(actualTeamId, distance);
-        }
-      }
+      final ballHeight = world.ball.position.y;
+      distanceTracker.updateBallPosition(teamId, ballHeight);
+
+      // Update tournament manager with current distances
+      final distance = distanceTracker.getTeamDistance(teamId);
+      tournamentManager.updateTeamDistance(teamId, distance);
     }
   }
 
@@ -1041,42 +1004,37 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
   /// Get current physics state for broadcasting (coordinator only)
   List<double>? _getCurrentPhysicsState() {
-    if (!_isAuthoritativePhysics || worlds.length < nTeams) return null;
+    if (!_isAuthoritativePhysics || !isLoaded) return null;
 
     final state = <double>[];
 
     // For each team: ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR
-    for (int displayIndex = 0; displayIndex < nTeams; displayIndex++) {
-      final actualTeamId = getActualTeamId(displayIndex);
-      final world = worlds[displayIndex];
+    for (final worldController in worldControllers.values) {
+      final teamId = worldController.teamContext.teamId;
+      final world = worldController.world;
 
-      if (world.ball.isMounted && world.paddle.isMounted) {
-        // Ball position
-        state.add(world.ball.position.x);
-        state.add(world.ball.position.y);
+      // Ball position
+      state.add(world.ball.position.x);
+      state.add(world.ball.position.y);
 
-        // Ball rotation
-        state.add(world.ball.body.angle);
+      // Ball rotation
+      state.add(world.ball.body.angle);
 
-        // Paddle position (only Y, X doesn't change)
-        state.add(world.paddle.position.y);
+      // Paddle position (only Y, X doesn't change)
+      state.add(world.paddle.position.y);
 
-        // Paddle angle
-        state.add(world.paddle.body.angle);
+      // Paddle angle
+      state.add(world.paddle.body.angle);
 
-        // Player input bitflags (converted to float)
-        final teamStream = actionManager.getTeamStream(actualTeamId);
-        final thrust = teamStream?.getCurrentThrust();
-        state.add(
-          (thrust?.leftBitflags ?? 0).toDouble(),
-        ); // stateL (leftBitflags as float)
-        state.add(
-          (thrust?.rightBitflags ?? 0).toDouble(),
-        ); // stateR (rightBitflags as float)
-      } else {
-        // Add default values if components not ready
-        state.addAll([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-      }
+      // Player input bitflags (converted to float)
+      final teamStream = actionManager.getTeamStream(teamId);
+      final thrust = teamStream?.getCurrentThrust();
+      state.add(
+        (thrust?.leftBitflags ?? 0).toDouble(),
+      ); // stateL (leftBitflags as float)
+      state.add(
+        (thrust?.rightBitflags ?? 0).toDouble(),
+      ); // stateR (rightBitflags as float)
     }
 
     return state;
@@ -1115,93 +1073,19 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       return; // Need at least 1 state
     }
 
-    // final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-
-    // appLog.info(
-    //   'Now: $now, buffer timestamps: ${_stateBuffer.map((s) => s.timestamp.toStringAsFixed(3)).join(", ")}',
-    // );
-
-    // If we have multiple states, try to interpolate between them
-    // if (_stateBuffer.length >= 2) {
-    //   // Find the two states to interpolate between
-    //   PhysicsSnapshot? previous;
-    //   PhysicsSnapshot? next;
-
-    //   for (final state in _stateBuffer) {
-    //     if (state.timestamp <= now) {
-    //       previous = state;
-    //     } else {
-    //       next = state;
-    //       break;
-    //     }
-    //   }
-
-    //   if (previous != null && next != null) {
-    //     // Calculate interpolation factor
-    //     final alpha =
-    //         (now - previous.timestamp) / (next.timestamp - previous.timestamp);
-    //     final clampedAlpha = alpha.clamp(0.0, 1.0);
-
-    //     // Apply interpolated state to each world
-    //     for (
-    //       int displayIndex = 0;
-    //       displayIndex < nTeams && displayIndex < worlds.length;
-    //       displayIndex++
-    //     ) {
-    //       final world = worlds[displayIndex];
-    //       final stateOffset = displayIndex * 6; // 6 values per team
-
-    //       if (stateOffset + 5 < previous.state.length &&
-    //           stateOffset + 5 < next.state.length &&
-    //           world.ball.isMounted &&
-    //           world.paddle.isMounted) {
-    //         // Interpolate ball position
-    //         final ballX = _lerp(
-    //           previous.state[stateOffset],
-    //           next.state[stateOffset],
-    //           clampedAlpha,
-    //         );
-    //         final ballY = _lerp(
-    //           previous.state[stateOffset + 1],
-    //           next.state[stateOffset + 1],
-    //           clampedAlpha,
-    //         );
-    //         world.ball.setPosition(Vector2(ballX, ballY));
-    //         appLog.info('Set ball position to ($ballX, $ballY)');
-    //         // Interpolate paddle position (only Y)
-    //         final paddleY = _lerp(
-    //           previous.state[stateOffset + 2],
-    //           next.state[stateOffset + 2],
-    //           clampedAlpha,
-    //         );
-    //         world.paddle.setPosition(Vector2(world.paddle.position.x, paddleY));
-    //         appLog.info('Set paddle Y position to $paddleY');
-    //         // Interpolate paddle angle
-    //         final paddleAngle = _lerp(
-    //           previous.state[stateOffset + 3],
-    //           next.state[stateOffset + 3],
-    //           clampedAlpha,
-    //         );
-    //         world.paddle.setAngle(paddleAngle);
-    //       }
-    //     }
-    //   }
-    // } else {
-    // If we only have one state, apply it directly
     final latestState = _stateBuffer.last;
 
     // Apply latest state directly to each world
-    for (
-      int displayIndex = 0;
-      displayIndex < nTeams && displayIndex < worlds.length;
-      displayIndex++
-    ) {
-      final world = worlds[displayIndex];
-      final actualTeamId = getActualTeamId(displayIndex);
-      final stateOffset =
-          actualTeamId *
-          7; // 7 values per team (ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR)
+    for (final worldController in worldControllers.values) {
+      final world = worldController.world;
 
+      final teamId = worldController.teamContext.teamId;
+
+      final displayIndex = worldController.teamContext.displayPosition.index;
+
+      final stateOffset =
+          displayIndex *
+          7; // 7 values per team (ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR)
       if (stateOffset + 6 < latestState.state.length &&
           world.ball.isMounted &&
           world.paddle.isMounted) {
@@ -1229,18 +1113,13 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
             .toInt(); // stateL
         final rightBitflags = latestState.state[stateOffset + 6]
             .toInt(); // stateR
-        _bitflagsNotifier.updateBitflags(
-          actualTeamId,
-          leftBitflags,
-          rightBitflags,
-        );
+        _bitflagsNotifier.updateBitflags(teamId, leftBitflags, rightBitflags);
 
         // Update parallax background for participants using proportional thrust
-        if (!_isAuthoritativePhysics && _teamPlayerCounts != null) {
+        if (!_isAuthoritativePhysics) {
           final leftPlayerCount = _countSetBits(leftBitflags);
           final rightPlayerCount = _countSetBits(rightBitflags);
-          final teamPlayerCount =
-              _teamPlayerCounts![actualTeamId.toString()] ?? 5;
+          final teamPlayerCount = _teamPlayerCounts[teamId.toString()] ?? 5;
           final thrustPerPlayer = 1.0 / teamPlayerCount;
 
           // Calculate proportional thrust: same as coordinator logic
@@ -1279,36 +1158,27 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     if (currentAssignment == null) return;
 
     final teamId = currentAssignment.teamId;
-    final displayIndex = getDisplayIndex(teamId);
 
-    if (displayIndex < worldControllers.length) {
-      final teamStream = actionManager.getTeamStream(teamId);
+    final teamStream = actionManager.getTeamStream(teamId);
 
-      if (teamStream != null && displayIndex < worlds.length) {
-        // Get current thrust from local inputs
-        final thrust = teamStream.getCurrentThrust();
-        final world = worlds[displayIndex];
+    if (teamStream != null) {
+      // Get current thrust from local inputs
+      final thrust = teamStream.getCurrentThrust();
+      final world = worldControllers[teamStream.position]!.world;
 
-        if (world.paddle.isMounted) {
-          // Apply predicted movement locally (will be corrected by authoritative state)
-          final totalThrust = thrust.leftThrust + thrust.rightThrust;
-          final predictedVelocity = Vector2(0, -totalThrust);
+      final totalThrust = thrust.leftThrust + thrust.rightThrust;
+      final predictedVelocity = Vector2(0, -totalThrust);
 
-          // Apply small prediction offset (much smaller than authoritative physics)
-          world.paddle.body.linearVelocity =
-              predictedVelocity * 0.1; // Reduced impact for prediction
-
-          // Note: Parallax background is now updated by authoritative physics state
-          // to ensure both teams get proper starfield updates
-        }
-      }
+      // Apply small prediction offset (much smaller than authoritative physics)
+      world.paddle.body.linearVelocity =
+          predictedVelocity * 0.1; // Reduced impact for prediction
     }
   }
 
   @override
   void onRemove() {
     // Clean up resources
-    for (final controller in worldControllers) {
+    for (final controller in worldControllers.values) {
       controller.dispose();
     }
 

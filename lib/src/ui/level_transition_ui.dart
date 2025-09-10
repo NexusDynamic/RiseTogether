@@ -324,47 +324,10 @@ class LevelTransitionUI extends StatelessWidget
     game.timeProvider.reset();
     game.distanceTracker.resetDistances();
 
-    // Reset world components for next level
-    for (final world in game.worlds) {
-      if (world is Resetable) {
-        (world as Resetable).reset();
-      }
-    }
-
     // Reset world controllers for next level
-    for (final controller in game.worldControllers) {
-      if (controller is Resetable) {
-        (controller as Resetable).reset();
-      }
-    }
-
-    // Explicitly reset ball and paddle positions
-    for (int i = 0; i < game.worlds.length; i++) {
-      final world = game.worlds[i];
-
-      // Reset ball using its reset method
-      if (world.ball.isMounted) {
-        world.ball.reset();
-        appLog.info('Reset ball $i to position: ${world.ball.startPosition}');
-      }
-
-      // Reset paddle using its reset method
-      if (world.paddle.isMounted) {
-        world.paddle.reset();
-        appLog.info(
-          'Reset paddle $i to position: ${world.paddle.startPosition}',
-        );
-      }
-    }
-
-    // Re-initialize starting heights for distance tracking after reset
-    for (int i = 0; i < game.worlds.length; i++) {
-      final world = game.worlds[i];
-      if (world.ball.isMounted) {
-        final ballStartHeight = world.ball.body.position.y;
-        game.distanceTracker.setStartingHeight(i, ballStartHeight);
-        appLog.info('Set starting height for team $i: $ballStartHeight');
-      }
+    for (final controller in game.worldControllers.values) {
+      // also resets the world...as the controller is...the controller.
+      (controller as Resetable).reset();
     }
 
     // Add the in-game UI overlay and resume game

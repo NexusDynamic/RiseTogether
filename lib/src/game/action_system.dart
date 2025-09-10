@@ -1,18 +1,22 @@
 import 'dart:async';
 
+import 'package:liblsl_coordinator/transports/lsl.dart';
 import 'package:rise_together/src/models/player_action.dart';
+import 'package:rise_together/src/models/team_context.dart';
 import 'package:rise_together/src/models/team_thrust.dart';
 
 /// Manages action streams for a specific team
 class TeamActionStream {
-  final int teamId;
+  // TODO: too many non-final fields in team / action stream
+  TeamDisplayPosition position;
+  int teamId; // Assigned by coordinator
   final int maxPlayers;
   final StreamController<GameAction> _controller =
       StreamController<GameAction>.broadcast();
   final Map<String, PaddleAction> _currentActions = {};
 
   // Callback to get player bitflag mapping
-  Map<String, int> Function()? _getPlayerBitflags;
+  final Map<String, int> Function()? _getPlayerBitflags;
 
   Stream<GameAction> get actionStream => _controller.stream;
   Stream<TeamThrust> get thrustStream =>
@@ -22,10 +26,12 @@ class TeamActionStream {
   int? _configuredTeamPlayerCount;
 
   TeamActionStream({
-    required this.teamId,
+    required this.position,
     required this.maxPlayers,
     Map<String, int> Function()? getPlayerBitflags,
-  }) : _getPlayerBitflags = getPlayerBitflags;
+  }) : _getPlayerBitflags = getPlayerBitflags,
+       // default teamId based on position
+       teamId = position == TeamDisplayPosition.left ? 0 : 1;
 
   /// Set the configured team player count for proper thrust calculation
   void setConfiguredTeamPlayerCount(int count) {
@@ -71,7 +77,7 @@ class TeamActionStream {
     int rightBitflags = 0;
 
     if (_getPlayerBitflags != null) {
-      final playerBitflags = _getPlayerBitflags!();
+      final playerBitflags = _getPlayerBitflags();
 
       for (final entry in _currentActions.entries) {
         final playerId = entry.key;
@@ -104,23 +110,26 @@ class TeamActionStream {
 
 /// Manages multiple team action streams
 class ActionStreamManager {
-  final Map<int, TeamActionStream> _teamStreams = {};
+  final Map<TeamDisplayPosition, TeamActionStream> _teamStreams = {};
 
   TeamActionStream createTeamStream(
-    int teamId,
+    TeamDisplayPosition position,
     int maxPlayers, {
     Map<String, int> Function()? getPlayerBitflags,
   }) {
     final stream = TeamActionStream(
-      teamId: teamId,
+      position: position,
       maxPlayers: maxPlayers,
       getPlayerBitflags: getPlayerBitflags,
     );
-    _teamStreams[teamId] = stream;
+    _teamStreams[position] = stream;
     return stream;
   }
 
-  TeamActionStream? getTeamStream(int teamId) => _teamStreams[teamId];
+  TeamActionStream? getTeamStream(int teamId) =>
+      _teamStreams.values.firstWhereOrNull((stream) => stream.teamId == teamId);
+  TeamActionStream? getTeamStreamByPosition(TeamDisplayPosition pos) =>
+      _teamStreams[pos];
 
   void dispose() {
     for (final stream in _teamStreams.values) {

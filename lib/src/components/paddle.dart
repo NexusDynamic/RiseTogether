@@ -4,20 +4,22 @@ import 'package:flutter/cupertino.dart';
 import 'package:rise_together/src/attributes/positionable.dart';
 import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
+import 'package:rise_together/src/game/rise_together_world.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 
 class Paddle extends BodyComponent<RiseTogetherGame>
     with AppLogging, AppSettings, PositionableBodyComponent, Resetable {
   final Vector2 _start;
-  final Vector2 _end;
   final double _w;
   final double _h;
 
   /// Position valuenotifier for paddle
   final ValueNotifier<double> positionNotifier = ValueNotifier(0.0);
   @override
-  final Forge2DWorld world;
+  RiseTogetherWorld get world => _world;
+
+  final RiseTogetherWorld _world;
 
   double thrustLeft = 0.0;
   double thrustRight = 0.0;
@@ -25,7 +27,7 @@ class Paddle extends BodyComponent<RiseTogetherGame>
   // Public getter for starting position
   Vector2 get startPosition => Vector2(_start.x + _w, _start.y);
 
-  Paddle(this.world, this._start, this._end)
+  Paddle(this._world, this._start, Vector2 _end)
     : _w = (_end.x - _start.x).abs() / 2, // Ensure minimum width
       _h = (_end.y - _start.y).abs() / 2; // Ensure minimum height
 

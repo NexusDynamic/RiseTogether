@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/attributes/team_color_provider.dart';
+import 'package:rise_together/src/models/team_context.dart';
 //import 'package:rise_together/src/ui/level_progress.dart';
 import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
@@ -145,8 +146,14 @@ class InGameUI extends StatelessWidget
               value: game.distanceTracker,
               builder: (ctx, _) {
                 final distanceTracker = Provider.of<DistanceTracker>(ctx);
-                final leftTeamId = game.getActualTeamId(0);
-                final rightTeamId = game.getActualTeamId(1);
+                final leftTeamId = game
+                    .worldControllers[TeamDisplayPosition.left]!
+                    .teamContext
+                    .teamId;
+                final rightTeamId = game
+                    .worldControllers[TeamDisplayPosition.right]!
+                    .teamContext
+                    .teamId;
                 final leftDistance = distanceTracker.getFormattedDistance(
                   leftTeamId,
                 );
@@ -289,9 +296,6 @@ class InGameUI extends StatelessWidget
       if (currentAssignment == null) {
         throw StateError('Current player assignment not found');
       }
-      appLog.info(
-        'UI: Current player assignment - Team: ${currentAssignment.teamId}, Player: ${currentAssignment.playerId}, Node: ${currentAssignment.nodeId}',
-      );
       return currentAssignment.teamId;
     } catch (e) {
       appLog.warning(
@@ -326,8 +330,10 @@ class InGameUI extends StatelessWidget
     double screenHeight,
   ) {
     // Get the actual teams for left and right display positions
-    final leftTeamId = game.getActualTeamId(0);
-    final rightTeamId = game.getActualTeamId(1);
+    final leftTeamId =
+        game.worldControllers[TeamDisplayPosition.left]!.teamContext.teamId;
+    final rightTeamId =
+        game.worldControllers[TeamDisplayPosition.right]!.teamContext.teamId;
 
     return [
       // Left team controls (Player's team)
@@ -508,8 +514,10 @@ class InGameUI extends StatelessWidget
   ) {
     // Set the action in the controller (this will clear any other action for this player)
     controller.setPlayerAction(playerId, action);
+    // TODO: Fix hack....
+    final actionTeamId = game.currentPlayerAssignment!.teamId;
     // Send the action to the game
-    _sendAction(teamId, playerId, action);
+    _sendAction(actionTeamId, playerId, action);
   }
 
   void _handleActionRelease(
@@ -542,14 +550,20 @@ class InGameUI extends StatelessWidget
               children: [
                 // Left team indicators
                 _buildTeamInputIndicators(
-                  teamId: game.getActualTeamId(0),
+                  teamId: game
+                      .worldControllers[TeamDisplayPosition.left]!
+                      .teamContext
+                      .teamId,
                   screenWidth: screenWidth,
                   screenHeight: screenHeight,
                   isLeftSide: true,
                 ),
                 // Right team indicators
                 _buildTeamInputIndicators(
-                  teamId: game.getActualTeamId(1),
+                  teamId: game
+                      .worldControllers[TeamDisplayPosition.right]!
+                      .teamContext
+                      .teamId,
                   screenWidth: screenWidth,
                   screenHeight: screenHeight,
                   isLeftSide: false,

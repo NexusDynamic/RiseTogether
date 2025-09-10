@@ -5,7 +5,10 @@ import 'package:flame/layers.dart';
 import 'package:flame/parallax.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flutter/cupertino.dart' hide Image;
+import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/attributes/team_color_provider.dart';
+import 'package:rise_together/src/game/world_controller.dart';
+import 'package:rise_together/src/models/team_context.dart';
 import 'package:rise_together/src/components/ball.dart';
 import 'package:rise_together/src/components/wall.dart';
 import 'package:rise_together/src/models/team.dart';
@@ -67,19 +70,46 @@ class RiseTogetherWorld extends Forge2DWorld
         HasGameReference<RiseTogetherGame>,
         AppLogging,
         AppSettings,
-        TeamColorProvider {
+        TeamColorProvider,
+        Resetable {
   final RiseTogetherLevel level;
   late final ParallaxComponent parallax;
   late CameraComponent _worldCamera;
   late Ball ball;
   late Paddle paddle;
   late final Image image;
-  final bool left;
+  final TeamDisplayPosition pos;
   final BackgroundLayer bgLayer;
+  bool _isInitialized = false;
+  WorldController get controller {
+    if (!_isInitialized) {
+      throw StateError(
+        'WorldController not set for RiseTogetherWorld. '
+        'Call setWorldController() after creating the world.',
+      );
+    }
+    return _controller;
+  }
 
-  RiseTogetherWorld({required this.level, required this.left})
-    : bgLayer = BackgroundLayer(level),
-      super(gravity: Vector2.zero());
+  late WorldController _controller;
+
+  /// Current team context providing consolidated team information
+  TeamContext? _teamContext;
+
+  /// Text component showing team name (stored for updates)
+  TextComponent? _teamTextComponent;
+
+  RiseTogetherWorld({
+    required this.level,
+    required this.pos,
+    WorldController? controller,
+  }) : bgLayer = BackgroundLayer(level),
+       super(gravity: Vector2.zero());
+
+  void setWorldController(WorldController controller) {
+    _isInitialized = true;
+    _controller = controller;
+  }
 
   void setWorldCamera(CameraComponent camera) {
     _worldCamera = camera;
@@ -87,7 +117,62 @@ class RiseTogetherWorld extends Forge2DWorld
 
   CameraComponent get worldCamera => _worldCamera;
 
-  Paddle buildPaddle({double widthMultiplier = 1.0}) {
+  /// Set the team context for this world
+  void updateTeamContext(TeamContext teamContext) {
+    _teamContext = teamContext;
+    appLog.fine('Team context set for world: ${teamContext.toString()}');
+    // Update any existing visual elements that depend on team colors
+    _updateTeamColors();
+  }
+
+  /// Get current team context
+  TeamContext? get teamContext => _teamContext;
+
+  /// Update visual elements with current team colors
+  void _updateTeamColors() {
+    // Update team text component if it exists
+    if (_teamTextComponent != null) {
+      _teamTextComponent!.text = _getTeamDisplayText();
+      _teamTextComponent!.textRenderer = TextPaint(
+        style: TextStyle(
+          color: _getTeamDisplayColor(),
+          fontSize: 1,
+          shadows: [
+            Shadow(
+              offset: Offset(0.05, 0.05),
+              blurRadius: 0.8,
+              color: Color.fromARGB(148, 0, 0, 0),
+            ),
+          ],
+        ),
+      );
+      appLog.info(
+        'Updated team text: "${_teamTextComponent!.text}" with team context: $_teamContext',
+      );
+    }
+  }
+
+  /// Get team display text based on team context
+  String _getTeamDisplayText() {
+    if (_teamContext != null) {
+      return _teamContext!.isPlayerTeam ? 'Your Team' : 'Opponent Team';
+    }
+    // Fallback to legacy behavior
+    return pos == TeamDisplayPosition.left ? 'Your Team' : 'Opponent Team';
+  }
+
+  /// Get team display color based on team context
+  Color _getTeamDisplayColor() {
+    if (_teamContext != null) {
+      return _teamContext!.baseColor;
+    }
+    // Fallback to legacy behavior
+    return pos == TeamDisplayPosition.left
+        ? getTeamBaseColor(Team.a)
+        : getTeamBaseColor(Team.b);
+  }
+
+  Future<Paddle> buildPaddle({double widthMultiplier = 1.0}) async {
     final paddleStart = Vector2(
       -0.15 * level.horizontalWidth * widthMultiplier,
       -0.01,
@@ -97,11 +182,17 @@ class RiseTogetherWorld extends Forge2DWorld
       -0.01 - 0.02 * level.horizontalWidth,
     );
     paddle = Paddle(this, paddleStart, paddleEnd);
-    appLog.fine('Building paddle with start: $paddleStart, end: $paddleEnd.');
+    appLog.info(
+      '🔨 Building paddle with widthMultiplier=$widthMultiplier, start: $paddleStart, end: $paddleEnd',
+    );
+
+    await add(paddle);
+    await paddle.loaded;
+    worldCamera.follow(paddle);
     return paddle;
   }
 
-  Ball buildBall() {
+  Future<Ball> buildBall() async {
     ball = Ball(
       this,
       radius: 0.02 * level.horizontalWidth,
@@ -110,7 +201,17 @@ class RiseTogetherWorld extends Forge2DWorld
         -0.01 - 0.02 * level.horizontalWidth - 0.02 * level.horizontalWidth,
       ),
     );
+    await add(ball);
+    await ball.loaded;
+    appLog.info(
+      '🔨 Building ball with radius: ${0.02 * level.horizontalWidth}',
+    );
     return ball;
+  }
+
+  @override
+  void reset() {
+    restartLevel();
   }
 
   void restartLevel() {
@@ -228,28 +329,27 @@ class RiseTogetherWorld extends Forge2DWorld
     }
     addAll(walls);
 
-    add(
-      TextComponent(
-        text: left ? 'Your Team' : 'Opponent Team',
-        anchor: Anchor.center,
-        textRenderer: TextPaint(
-          style: TextStyle(
-            color: left ? getTeamBaseColor(Team.a) : getTeamBaseColor(Team.b),
-            fontSize: 1,
-            shadows: [
-              Shadow(
-                offset: Offset(0.05, 0.05),
-                blurRadius: 0.8,
-                color: Color.fromARGB(148, 0, 0, 0),
-              ),
-            ],
-          ),
+    _teamTextComponent = TextComponent(
+      text: _getTeamDisplayText(),
+      anchor: Anchor.center,
+      textRenderer: TextPaint(
+        style: TextStyle(
+          color: _getTeamDisplayColor(),
+          fontSize: 1,
+          shadows: [
+            Shadow(
+              offset: Offset(0.05, 0.05),
+              blurRadius: 0.8,
+              color: Color.fromARGB(148, 0, 0, 0),
+            ),
+          ],
         ),
-        position: Vector2(0, 0.1),
-        size: Vector2(width, 1),
-        scale: Vector2.all(0.1),
       ),
+      position: Vector2(0, 0.1),
+      size: Vector2(width, 1),
+      scale: Vector2.all(0.1),
     );
+    add(_teamTextComponent!);
   }
 
   @override

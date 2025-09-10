@@ -1,16 +1,20 @@
 import 'package:flutter/cupertino.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
+import 'package:rise_together/src/models/team_context.dart';
 
 /// A widget that displays a level progress meter
 /// This is a vertical "elevator" style progress bar (similar to a scrollbar)
 /// that shows how much distance the player has travelled. This will be
 /// used to show and compare progress between the two teams.
 class LevelProgressMeter extends StatelessWidget {
-  final int teamId;
+  final TeamDisplayPosition teamPos;
   final RiseTogetherGame game;
 
-  const LevelProgressMeter({required this.game, this.teamId = 0, super.key})
-    : super();
+  const LevelProgressMeter({
+    required this.game,
+    this.teamPos = TeamDisplayPosition.left,
+    super.key,
+  }) : super();
   @override
   Widget build(BuildContext context) {
     final height =
@@ -30,9 +34,9 @@ class LevelProgressMeter extends StatelessWidget {
               children: [
                 ValueListenableBuilder<double>(
                   valueListenable:
-                      game.worldControllers[teamId].paddle.positionNotifier,
+                      game.worldControllers[teamPos]!.paddle.positionNotifier,
                   builder: (context, position, child) {
-                    final progress = game.worldControllers[teamId]
+                    final progress = game.worldControllers[teamPos]!
                         .levelProgress(position);
 
                     return Positioned(

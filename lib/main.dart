@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:rise_together/src/game/action_system.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/services/version.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
@@ -38,7 +39,8 @@ class RiseTogetherApp extends StatefulWidget with AppSettings {
 
 class _RiseTogetherAppState extends State<RiseTogetherApp>
     with AppLogging, AppSettings {
-  final NetworkCoordinator networkCoordinator = NetworkCoordinator();
+  final ActionStreamManager _actionManager = ActionStreamManager();
+  late final NetworkCoordinator networkCoordinator;
   late final RiseTogetherGame game;
   ActionProvider? _actionProvider;
 
@@ -49,7 +51,8 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
       'Starting RiseTogether (v${RiseTogetherPackageInfo.version}, '
       'build ${RiseTogetherPackageInfo.buildNumber})',
     );
-    game = RiseTogetherGame();
+    networkCoordinator = NetworkCoordinator(_actionManager);
+    game = RiseTogetherGame(actionManager: _actionManager);
     _initializeCoordination();
   }
 
@@ -72,7 +75,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
     } catch (error) {
       appLog.severe('Failed to initialize coordination: $error');
       // Fall back to local action provider
-      _actionProvider = LocalActionProvider();
+      _actionProvider = LocalActionProvider(_actionManager);
       appLog.warning('Using local action provider as fallback');
     }
   }
@@ -81,7 +84,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
   Future<void> configureAndStartGame() async {
     if (_actionProvider == null) {
       appLog.warning('Action provider not ready, using local provider');
-      _actionProvider = LocalActionProvider();
+      _actionProvider = LocalActionProvider(_actionManager);
     }
 
     try {
@@ -111,7 +114,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
       appLog.info('Game not configured yet, configuring now...');
       if (_actionProvider == null) {
         appLog.warning('Action provider not ready, using local provider');
-        _actionProvider = LocalActionProvider();
+        _actionProvider = LocalActionProvider(_actionManager);
         await _actionProvider!.initialize();
       }
 
@@ -179,6 +182,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
   @override
   void dispose() {
     _actionProvider?.dispose();
+    _actionManager.dispose();
     networkCoordinator.dispose();
     super.dispose();
   }
@@ -225,10 +229,10 @@ void main() async {
     dataLoggers: ['app_data'], // File only for app data
     dataLogFormat: 'tsv',
   );
-  
+
   // Double-check that initialization is complete
   await logService.ensureInitialized();
-  
+
   // Debug: Print logging status
   final status = logService.getLoggingStatus();
   print('DEBUG - Logging status: $status');

@@ -21,6 +21,14 @@ enum Team {
     return Team.values.firstWhere((team) => team.id == id);
   }
 
+  static Team opponentOf(Team team) {
+    return team.opponent;
+  }
+
+  static Team opponentOfId(int id) {
+    return fromId(id).opponent;
+  }
+
   /// Get the opposing team
   Team get opponent {
     switch (this) {
