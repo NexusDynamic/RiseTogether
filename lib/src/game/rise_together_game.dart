@@ -966,11 +966,11 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       final physicsConfig = config['physics'] as Map<String, dynamic>;
       await appSettings.getGroup('physics').updateFromMap(physicsConfig);
       appLog.info('Applied physics configuration from network');
-
-      // Recreate paddles with updated physics settings (e.g., paddle width multiplier)
-      await _addPaddles(force: true);
-      appLog.info('Recreated paddles with updated physics settings');
     }
+
+    // Always recreate paddles after any configuration update to ensure all settings are applied
+    await _addPaddles(force: true);
+    appLog.info('Recreated paddles with updated configuration');
 
     if (config.containsKey('network')) {
       final networkConfig = config['network'] as Map<String, dynamic>;
