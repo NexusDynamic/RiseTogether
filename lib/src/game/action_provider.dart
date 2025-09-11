@@ -14,6 +14,9 @@ abstract class ActionProvider {
   /// Start gameplay mode (coordinator sends start signal)
   Future<void> startGameplay();
 
+  /// Resume gameplay mode (coordinator sends resume signal)
+  Future<void> resumeGameplay();
+
   /// Stop gameplay mode (coordinator sends stop signal)
   Future<void> stopGameplay();
 
@@ -34,6 +37,7 @@ abstract class ActionProvider {
 class LocalActionProvider implements ActionProvider {
   final ActionStreamManager _actionManager;
   late final NetworkBridge _networkBridge;
+  bool _initialized = false;
 
   @override
   ActionStreamManager get actionManager => _actionManager;
@@ -61,12 +65,19 @@ class LocalActionProvider implements ActionProvider {
 
   @override
   Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
     _networkBridge = NetworkBridge(_actionManager, useLocalNetwork: true);
     await _networkBridge.initialize();
   }
 
   @override
   Future<void> startGameplay() async {
+    // Nothing special needed for local mode
+  }
+
+  @override
+  Future<void> resumeGameplay() async {
     // Nothing special needed for local mode
   }
 
@@ -90,6 +101,8 @@ class NetworkActionProvider implements ActionProvider {
   NetworkCoordinator get networkCoordinator => _networkCoordinator;
   late final NetworkBridge _networkBridge;
 
+  bool _initialized = false;
+
   NetworkActionProvider(this._networkCoordinator);
 
   @override
@@ -111,6 +124,8 @@ class NetworkActionProvider implements ActionProvider {
 
   @override
   Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
     // ActionManager from coordinator already consuming all LSL action streams
     // NetworkBridge handles local player's action publishing
     _networkBridge = NetworkBridge(
@@ -126,6 +141,15 @@ class NetworkActionProvider implements ActionProvider {
     // Only coordinator can start the game
     if (isCoordinator) {
       await _networkCoordinator.startGame();
+    }
+    // All nodes (including coordinator) participate as players
+  }
+
+  @override
+  Future<void> resumeGameplay() async {
+    // Only coordinator can start the game
+    if (isCoordinator) {
+      await _networkCoordinator.resumeGame();
     }
     // All nodes (including coordinator) participate as players
   }

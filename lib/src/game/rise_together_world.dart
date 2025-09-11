@@ -172,16 +172,23 @@ class RiseTogetherWorld extends Forge2DWorld
         : getTeamBaseColor(Team.b);
   }
 
-  Future<Paddle> buildPaddle({double widthMultiplier = 1.0}) async {
-    final paddleStart = Vector2(
-      -0.15 * level.horizontalWidth * widthMultiplier,
-      -0.01,
-    );
-    final paddleEnd = Vector2(
+  Vector2 paddleStart([double widthMultiplier = 1.0]) {
+    return Vector2(-0.15 * level.horizontalWidth * widthMultiplier, -0.01);
+  }
+
+  Vector2 paddleEnd([double widthMultiplier = 1.0]) {
+    return Vector2(
       0.15 * level.horizontalWidth * widthMultiplier,
       -0.01 - 0.02 * level.horizontalWidth,
     );
-    paddle = Paddle(this, paddleStart, paddleEnd);
+  }
+
+  Future<Paddle> buildPaddle({double widthMultiplier = 1.0}) async {
+    paddle = Paddle(
+      this,
+      paddleStart(widthMultiplier),
+      paddleEnd(widthMultiplier),
+    );
     appLog.info(
       '🔨 Building paddle with widthMultiplier=$widthMultiplier, start: $paddleStart, end: $paddleEnd',
     );
@@ -223,14 +230,15 @@ class RiseTogetherWorld extends Forge2DWorld
     game.clearTeamActions(this);
 
     // Reset ball and paddle to starting positions (world components - reused)
-    ball.cancelPendingTransforms();
-    ball.stopMovement();
-    ball.setPosition(Vector2(0.0, -1));
 
     // @TODO: this should not be hardcoded, use conf or props
     paddle.cancelPendingTransforms();
     paddle.setAngle(0);
-    paddle.setPosition(Vector2(0, -0.01 - 0.01 * level.horizontalWidth));
+    paddle.setPosition(paddle.startPosition);
+
+    ball.cancelPendingTransforms();
+    ball.stopMovement();
+    ball.setPosition(ball.startPosition);
 
     // Note: walls and obstacles stay the same for restart (level components)
   }
@@ -354,8 +362,10 @@ class RiseTogetherWorld extends Forge2DWorld
 
   @override
   Future<void> onLoad() async {
-    super.onLoad();
     image = await Flame.images.load('ground_floor.png');
+    children.register<Wall>();
+    children.register<Ball>();
+    children.register<Paddle>();
     parallax = await game.loadParallaxComponent(
       [
         ParallaxImageData('stars_0.png'),

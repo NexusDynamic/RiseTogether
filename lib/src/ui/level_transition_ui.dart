@@ -4,7 +4,6 @@ import 'package:rise_together/src/ui/overlay.dart';
 import 'package:rise_together/src/game/rise_together_game.dart';
 import 'package:rise_together/src/game/tournament_manager.dart';
 import 'package:rise_together/src/game/distance_tracker.dart';
-import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
 class LevelTransitionUI extends StatelessWidget
@@ -320,18 +319,11 @@ class LevelTransitionUI extends StatelessWidget
     // Remove this overlay
     game.overlays.remove(LevelTransitionUI.overlayID);
 
-    // Reset level-specific state (but keep tournament progress)
-    game.timeProvider.reset();
-    game.distanceTracker.resetDistances();
-
-    // Reset world controllers for next level
-    for (final controller in game.worldControllers.values) {
-      // also resets the world...as the controller is...the controller.
-      (controller as Resetable).reset();
-    }
-
-    // Add the in-game UI overlay and resume game
-    game.overlays.add('inGameUI');
-    game.resumeEngine();
+    // Advance to next level (preserving tournament progress)
+    game.advanceLevel().then((_) {
+      // Add the in-game UI overlay and resume game
+      game.overlays.add('inGameUI');
+      game.resumeGame();
+    });
   }
 }

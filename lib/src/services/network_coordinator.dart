@@ -1026,14 +1026,28 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     notifyListeners();
   }
 
+  Future<void> resumeGame() async {
+    if (isCoordinator) {
+      // Coordinator resumes the game data stream
+      await _session!.resumeStream('GameData');
+      await _session!.resumeStream('PhysicsState');
+      appLog.info('Coordinator resumed game data and physics streams');
+    } else {
+      appLog.info('Participant marked as active - waiting for coordinator');
+    }
+
+    _gameActive = true;
+    notifyListeners();
+  }
+
   /// Stop the game
   Future<void> stopGame() async {
     _gameActive = false;
 
     if (isCoordinator) {
       // Coordinator stops the game data stream and notifies participants
-      await _session!.stopStream('GameData');
-      await _session!.stopStream('PhysicsState');
+      await _session!.pauseStream('GameData');
+      await _session!.pauseStream('PhysicsState');
       await _session!.sendUserMessage(
         'stop_game',
         'Game stopped by coordinator',

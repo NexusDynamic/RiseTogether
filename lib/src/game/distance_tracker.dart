@@ -30,7 +30,7 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
     _startingHeights[teamId] = height;
     _maxDistances[teamId] =
         0.0; // Reset max distance when starting height changes
-    appLog.fine('Team $teamId starting height set to $height');
+    appLog.info('Team $teamId starting height set to $height, max distance reset to 0.0');
   }
 
   /// Update the current ball position for a team and track max distance
@@ -46,10 +46,13 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
     bool shouldNotify = false;
 
     if (positiveDistance > (_maxDistances[teamId] ?? 0.0)) {
+      final oldDistance = _maxDistances[teamId] ?? 0.0;
       _maxDistances[teamId] = positiveDistance;
-      // appLog.fine(
-      //   'Team $teamId new max distance: ${positiveDistance.toStringAsFixed(1)}m',
-      // );
+      if (positiveDistance > 90.0) { // Log when we see the high distance issue
+        appLog.info(
+          'Team $teamId distance jump: currentHeight=$currentHeight, startHeight=$startHeight, relativeHeight=$relativeHeight, oldDistance=$oldDistance, newDistance=${positiveDistance.toStringAsFixed(1)}m',
+        );
+      }
       shouldNotify = true;
     }
 
@@ -115,7 +118,7 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
     for (final team in Team.values) {
       _maxDistances[team.id] = 0.0;
     }
-    appLog.info('Distance tracker distances reset');
+    appLog.info('Distance tracker distances reset - startingHeights: $_startingHeights, maxDistances: $_maxDistances');
     notifyListeners();
   }
 }

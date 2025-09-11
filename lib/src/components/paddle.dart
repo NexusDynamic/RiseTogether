@@ -11,8 +11,14 @@ import 'package:rise_together/src/settings/app_settings.dart';
 class Paddle extends BodyComponent<RiseTogetherGame>
     with AppLogging, AppSettings, PositionableBodyComponent, Resetable {
   final Vector2 _start;
-  final double _w;
-  final double _h;
+  final Vector2 _end;
+
+  double get _w => (_end.x - _start.x).abs() / 2;
+  double get _h => (_end.y - _start.y).abs() / 2;
+
+  late BodyDef _bodyDef;
+  late FixtureDef _fixtureDef;
+  late Fixture _fixture;
 
   /// Position valuenotifier for paddle
   final ValueNotifier<double> positionNotifier = ValueNotifier(0.0);
@@ -27,9 +33,7 @@ class Paddle extends BodyComponent<RiseTogetherGame>
   // Public getter for starting position
   Vector2 get startPosition => Vector2(_start.x + _w, _start.y);
 
-  Paddle(this._world, this._start, Vector2 _end)
-    : _w = (_end.x - _start.x).abs() / 2, // Ensure minimum width
-      _h = (_end.y - _start.y).abs() / 2; // Ensure minimum height
+  Paddle(this._world, this._start, this._end);
 
   @override
   Future<void> onLoad() async {
@@ -43,31 +47,32 @@ class Paddle extends BodyComponent<RiseTogetherGame>
         position: Vector2(_start.x + _w, _start.y),
       ),
     );
-
-    super.onLoad();
-  }
-
-  @override
-  Body createBody() {
     appLog.fine('Creating paddle body with w: $_w, h: $_h');
 
     final shape = EdgeShape()
       ..set(Vector2(_start.x, _start.y), Vector2(_start.x + 2 * _w, _start.y));
 
-    final fixtureDef = FixtureDef(shape, friction: 20.0, density: 1.0);
-    final bodyDef = BodyDef(
+    _fixtureDef = FixtureDef(shape, friction: 20.0, density: 1.0);
+    _bodyDef = BodyDef(
       type: BodyType.kinematic,
-      position: Vector2(_start.x + _w, _start.y),
+      position: startPosition,
       gravityOverride: Vector2(0, 0),
     );
     paint = Paint()
       ..color = const Color.fromARGB(255, 0, 187, 255)
       ..style = PaintingStyle.stroke
       ..strokeWidth = polygonRadius * 1.5;
-    positionNotifier.value = bodyDef.position.y;
-    appLog.fine('Paddle position: ${bodyDef.position}');
+    positionNotifier.value = _bodyDef.position.y;
+    appLog.fine('Paddle position: ${_bodyDef.position}');
     appLog.fine('World: ${world.hashCode}');
-    return world.createBody(bodyDef)..createFixture(fixtureDef);
+    body = world.createBody(_bodyDef);
+    _fixture = body.createFixture(_fixtureDef);
+    await super.onLoad();
+  }
+
+  @override
+  Body createBody() {
+    return body;
   }
 
   /// Set thrust values from action system
@@ -75,6 +80,27 @@ class Paddle extends BodyComponent<RiseTogetherGame>
     thrustLeft = leftThrust;
     thrustRight = rightThrust;
     return thrustLeft + thrustRight;
+  }
+
+  void updatePaddleShape(Vector2 newStart, Vector2 newEnd) {
+    appLog.info("current paddle angle: ${body.angle}");
+    stopMovement();
+    cancelPendingTransforms();
+
+    _start.setFrom(newStart);
+    _end.setFrom(newEnd);
+
+    // Update the fixture to match new width
+    (_fixture.shape as EdgeShape).set(
+      Vector2(_start.x, _start.y),
+      Vector2(_start.x + 2 * _w, _start.y),
+    );
+    body.setTransform(startPosition, 0);
+    positionNotifier.value = startPosition.y;
+    appLog.info(
+      'Updated paddle shape to w: $_w, h: $_h at position: $startPosition',
+    );
+    appLog.info("new paddle angle: ${body.angle}");
   }
 
   @override

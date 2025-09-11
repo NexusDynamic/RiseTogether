@@ -14,7 +14,7 @@ void main() async {
 
   // 2. Create High-Frequency Data Loggers
   print('2. Creating specialized data loggers...');
-  
+
   // EEG data logger (TSV format for analysis tools)
   await logService.createFileLogger(
     'eeg_data',
@@ -100,7 +100,9 @@ void main() async {
 
   // 7. More app logging to show it still works
   logService.info('Data logging completed');
-  logService.info('EEG samples: 1000, Sensor readings: 50, Network metrics: 20');
+  logService.info(
+    'EEG samples: 1000, Sensor readings: 50, Network metrics: 20',
+  );
 
   // 8. Wait a bit for all data to be flushed to files
   print('\nWaiting for data to be written to files...');
@@ -116,45 +118,44 @@ void main() async {
   print('- logs/eeg_data.tsv (high-frequency EEG data)');
   print('- logs/sensor_data.csv (sensor data in CSV format)');
   print('- logs/network_metrics.tsv (network metrics)');
-  print('\nNote: App logs also appeared in console, but data logs are file-only for performance.');
+  print(
+    '\nNote: App logs also appeared in console, but data logs are file-only for performance.',
+  );
 }
 
 /// Example usage in a real application
 class ExampleEEGApp with AppLogging {
   late final String eegLoggerName = 'eeg_realtime';
-  
+
   Future<void> initialize() async {
     // Setup app logging
     await appLog.configureAppLogging(
       destination: LogDestination.both,
       filePath: 'logs/eeg_app.log',
     );
-    
+
     // Setup high-frequency EEG data logger
     await appLog.createFileLogger(
       eegLoggerName,
-      filePath: 'logs/eeg_realtime_${DateTime.now().millisecondsSinceEpoch}.tsv',
+      filePath:
+          'logs/eeg_realtime_${DateTime.now().millisecondsSinceEpoch}.tsv',
       format: 'tsv',
     );
-    
+
     appLog.info('EEG application initialized');
   }
-  
+
   void processEEGSample(Map<String, dynamic> eegData) {
     // Log to high-frequency data logger (no console output)
-    appLog.logData(
-      eegLoggerName,
-      'EEG_SAMPLE',
-      data: eegData,
-    );
-    
+    appLog.logData(eegLoggerName, 'EEG_SAMPLE', data: eegData);
+
     // Only log significant events to app log
     final quality = eegData['quality'] as String?;
     if (quality == 'poor') {
       appLog.warning('Poor signal quality detected in EEG data');
     }
   }
-  
+
   void handleError(String error) {
     // Errors go to app log (console + file)
     appLog.severe('EEG processing error: $error');

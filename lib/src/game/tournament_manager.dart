@@ -68,8 +68,12 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
   bool get isTournamentComplete => _currentRound >= _totalRounds;
 
   /// Current level progress display (1-indexed)
-  String get levelProgress =>
-      'Round ${_currentRound + 1}/$_totalRounds - Level ${_currentLevel + 1}/$_levelsPerRound';
+  String get levelProgress {
+    if (isTournamentComplete) {
+      return 'Tournament Complete!';
+    }
+    return 'Round ${_currentRound + 1}/$_totalRounds - Level ${_currentLevel + 1}/$_levelsPerRound';
+  }
 
   /// Tournament wins for each team
   int get team1RoundWins =>
@@ -103,7 +107,12 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
 
   /// Complete the current level and determine winner
   void completeLevel() {
-    if (isTournamentComplete) return;
+    if (isTournamentComplete) {
+      appLog.info('Tournament already complete, not advancing level');
+      return;
+    }
+
+    appLog.info('Completing level: currentRound=$_currentRound, currentLevel=$_currentLevel, levelsPerRound=$_levelsPerRound');
 
     final levelResult = LevelResult(
       levelIndex: _currentLevel,
@@ -128,12 +137,15 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
 
     // Advance to next level
     _currentLevel++;
+    appLog.info('Advanced to level: $_currentLevel (isRoundComplete: $isRoundComplete)');
 
     // Check if round is complete
     if (isRoundComplete) {
+      appLog.info('Round is complete, calling _completeRound()');
       _completeRound();
     }
 
+    appLog.info('After completeLevel: currentRound=$_currentRound, currentLevel=$_currentLevel');
     notifyListeners();
   }
 
@@ -145,8 +157,10 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
 
     _currentRound++;
     _currentLevel = 0;
+    appLog.info('Round completed, advanced to: currentRound=$_currentRound, currentLevel=$_currentLevel (isTournamentComplete: $isTournamentComplete)');
 
     if (isTournamentComplete) {
+      appLog.info('Tournament is complete, calling _completeTournament()');
       _completeTournament();
     }
   }

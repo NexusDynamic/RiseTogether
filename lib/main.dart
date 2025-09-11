@@ -235,7 +235,7 @@ void main() async {
 
   // Debug: Print logging status
   final status = logService.getLoggingStatus();
-  print('DEBUG - Logging status: $status');
+  debugPrint('DEBUG - Logging status: $status');
 
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
@@ -244,14 +244,16 @@ void main() async {
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   RiseTogetherPackageInfo().init(packageInfo);
   runApp(
-    EasyLocalization(
-      supportedLocales: [Locale('en'), Locale('da')],
-      path: 'assets/translations',
-      fallbackLocale: Locale('en'),
-      startLocale: Locale('da'),
-      useOnlyLangCode: true,
-      useFallbackTranslations: true,
-      child: RiseTogetherApp(),
+    ExcludeSemantics(
+      child: EasyLocalization(
+        supportedLocales: [Locale('en'), Locale('da')],
+        path: 'assets/translations',
+        fallbackLocale: Locale('en'),
+        startLocale: Locale('da'),
+        useOnlyLangCode: true,
+        useFallbackTranslations: true,
+        child: RiseTogetherApp(),
+      ),
     ),
   );
 }

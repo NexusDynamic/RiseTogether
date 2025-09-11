@@ -102,7 +102,21 @@ class WorldController with AppLogging, Resetable {
   void reset() {
     world.reset();
     actionStream.clearAllActions();
+
+    // Update distance tracker with ball's start position
+    world.game.distanceTracker.setStartingHeight(
+      _teamContext.teamId,
+      world.ball.startPosition.y,
+    );
+
     appLog.fine('WorldController reset for team ${actionStream.teamId}');
+  }
+
+  void updatePaddleWidth(double widthMultiplier) {
+    world.paddle.updatePaddleShape(
+      world.paddleStart(widthMultiplier),
+      world.paddleEnd(widthMultiplier),
+    );
   }
 
   void dispose() {

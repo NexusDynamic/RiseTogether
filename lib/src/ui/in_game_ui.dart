@@ -584,7 +584,7 @@ class InGameUI extends StatelessWidget
   }) {
     final leftBitflags = game.getTeamLeftBitflags(teamId);
     final rightBitflags = game.getTeamRightBitflags(teamId);
-    final allPlayers = game.getAllPlayersBitflags();
+    final allPlayers = game.playerBitFlagsList;
 
     // Filter players for this team
     final teamPlayers = allPlayers.where((p) => p['teamId'] == teamId).toList();

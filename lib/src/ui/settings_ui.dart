@@ -64,7 +64,9 @@ class _SettingsUIState extends State<SettingsUI>
         'physics.paddle_width_multiplier',
       );
       _thrustMultiplier = appSettings.getDouble('physics.thrust_multiplier');
-      _rotationMultiplier = appSettings.getDouble('physics.rotation_multiplier');
+      _rotationMultiplier = appSettings.getDouble(
+        'physics.rotation_multiplier',
+      );
 
       // Load team colors
       _teamAColor = Color(appSettings.getInt('colors.team_a_color'));
@@ -231,11 +233,13 @@ class _SettingsUIState extends State<SettingsUI>
             _levelDuration,
             5.0,
             600.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _levelDuration = value;
               });
-              _saveSetting('game.level_duration', value);
+              if (end) {
+                _saveSetting('game.level_duration', value);
+              }
             },
             suffix: 's',
             decimalPlaces: 0,
@@ -250,11 +254,13 @@ class _SettingsUIState extends State<SettingsUI>
             _distanceMultiplier,
             50.0,
             500.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _distanceMultiplier = value;
               });
-              _saveSetting('game.distance_multiplier', value);
+              if (end) {
+                _saveSetting('game.distance_multiplier', value);
+              }
             },
             suffix: 'm/unit',
             decimalPlaces: 0,
@@ -273,11 +279,13 @@ class _SettingsUIState extends State<SettingsUI>
             _tournamentRounds.toDouble(),
             1.0,
             10.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _tournamentRounds = value.round();
               });
-              _saveSetting('game.tournament_rounds', _tournamentRounds);
+              if (end) {
+                _saveSetting('game.tournament_rounds', _tournamentRounds);
+              }
             },
             suffix: ' rounds',
             decimalPlaces: 0,
@@ -292,11 +300,13 @@ class _SettingsUIState extends State<SettingsUI>
             _levelsPerRound.toDouble(),
             1.0,
             10.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _levelsPerRound = value.round();
               });
-              _saveSetting('game.levels_per_round', _levelsPerRound);
+              if (end) {
+                _saveSetting('game.levels_per_round', _levelsPerRound);
+              }
             },
             suffix: ' levels',
             decimalPlaces: 0,
@@ -330,11 +340,13 @@ class _SettingsUIState extends State<SettingsUI>
             _gravity,
             0.0,
             20.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _gravity = value;
               });
-              _saveSetting('physics.gravity', value);
+              if (end) {
+                _saveSetting('physics.gravity', value);
+              }
             },
             suffix: ' m/s²',
             decimalPlaces: 2,
@@ -347,11 +359,13 @@ class _SettingsUIState extends State<SettingsUI>
             _paddleWidthMultiplier,
             0.5,
             2.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _paddleWidthMultiplier = value;
               });
-              _saveSetting('physics.paddle_width_multiplier', value);
+              if (end) {
+                _saveSetting('physics.paddle_width_multiplier', value);
+              }
             },
             suffix: 'x',
             decimalPlaces: 2,
@@ -365,11 +379,13 @@ class _SettingsUIState extends State<SettingsUI>
             _thrustMultiplier,
             0.1,
             3.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _thrustMultiplier = value;
               });
-              _saveSetting('physics.thrust_multiplier', value);
+              if (end) {
+                _saveSetting('physics.thrust_multiplier', value);
+              }
             },
             suffix: 'x',
             decimalPlaces: 2,
@@ -383,11 +399,13 @@ class _SettingsUIState extends State<SettingsUI>
             _rotationMultiplier,
             0.1,
             3.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _rotationMultiplier = value;
               });
-              _saveSetting('physics.rotation_multiplier', value);
+              if (end) {
+                _saveSetting('physics.rotation_multiplier', value);
+              }
             },
             suffix: 'x',
             decimalPlaces: 2,
@@ -401,11 +419,13 @@ class _SettingsUIState extends State<SettingsUI>
             _gameScale,
             0.00001,
             0.001,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _gameScale = value;
               });
-              _saveSetting('game.game_scale', value);
+              if (end) {
+                _saveSetting('game.game_scale', value);
+              }
             },
           ),
 
@@ -418,11 +438,13 @@ class _SettingsUIState extends State<SettingsUI>
             _ballRadius,
             0.5,
             2.0,
-            (value) {
+            (value, {bool end = false}) {
               setState(() {
                 _ballRadius = value;
               });
-              _saveSetting('game.ball_radius', value);
+              if (end) {
+                _saveSetting('game.ball_radius', value);
+              }
             },
           ),
 
@@ -520,7 +542,7 @@ class _SettingsUIState extends State<SettingsUI>
     double value,
     double min,
     double max,
-    Function(double) onChanged, {
+    Function(double, {bool end}) onChanged, {
     String? suffix,
     int? decimalPlaces,
   }) {
@@ -559,7 +581,8 @@ class _SettingsUIState extends State<SettingsUI>
           value: value,
           min: min,
           max: max,
-          onChanged: onChanged,
+          onChanged: (value) => onChanged(value, end: false),
+          onChangeEnd: (value) => onChanged(value, end: true),
           activeColor: Color.fromARGB(255, 0, 150, 255),
         ),
       ],
