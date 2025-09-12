@@ -19,6 +19,7 @@ import 'package:rise_together/src/components/paddle.dart';
 
 abstract class RiseTogetherLevel {
   final double horizontalWidth = 1.0;
+  double get verticalHeight => horizontalWidth * verticalMultiplier;
   abstract final double verticalMultiplier;
   const RiseTogetherLevel();
 }
@@ -155,10 +156,10 @@ class RiseTogetherWorld extends Forge2DWorld
   /// Get team display text based on team context
   String _getTeamDisplayText() {
     if (_teamContext != null) {
-      return _teamContext!.isPlayerTeam ? 'Your Team' : 'Opponent Team';
+      return _teamContext!.isPlayerTeam ? 'You' : 'Opponent';
     }
     // Fallback to legacy behavior
-    return pos == TeamDisplayPosition.left ? 'Your Team' : 'Opponent Team';
+    return pos == TeamDisplayPosition.left ? 'You' : 'Opponent';
   }
 
   /// Get team display color based on team context
@@ -366,6 +367,11 @@ class RiseTogetherWorld extends Forge2DWorld
     children.register<Wall>();
     children.register<Ball>();
     children.register<Paddle>();
+
+    final parallaxSize = game.verticalOrientation
+        ? Vector2(game.size.x, game.size.y / 2)
+        : Vector2(game.size.x / 2, game.size.y);
+
     parallax = await game.loadParallaxComponent(
       [
         ParallaxImageData('stars_0.png'),
@@ -376,7 +382,7 @@ class RiseTogetherWorld extends Forge2DWorld
       baseVelocity: Vector2(0, 0),
       repeat: ImageRepeat.repeatY,
       fill: LayerFill.width,
-      size: Vector2(game.size.x / 2, game.size.y),
+      size: parallaxSize,
       velocityMultiplierDelta: Vector2(0, 5),
     );
     worldCamera.backdrop.add(parallax);

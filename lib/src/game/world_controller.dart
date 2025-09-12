@@ -60,9 +60,13 @@ class WorldController with AppLogging, Resetable {
       _updatePaddleThrust(thrust);
     });
     // TODO: Fix hack...
-    configuredTeamPlayerCount = _teamContext.players.length;
+    configuredTeamPlayerCount = _teamContext.players.isNotEmpty
+        ? _teamContext.players.length
+        : 1;
     actionStream.setConfiguredTeamPlayerCount(configuredTeamPlayerCount);
-    appLog.fine('Team context updated: ${teamContext.toString()}');
+    appLog.fine(
+      'Team context updated: ${teamContext.toString()}, configured player count: $configuredTeamPlayerCount',
+    );
   }
 
   /// Get current team context
@@ -79,8 +83,8 @@ class WorldController with AppLogging, Resetable {
     if (shouldUpdateParallax) {
       // Use the corrected thrust values from TeamActionStream (which now uses configured team size)
       world.parallax.parallax!.baseVelocity.setFrom(Vector2(0, -totalThrust));
+      appLog.info('Updated paddle thrust: ${thrust.toString()}');
     }
-    appLog.finest('Updated paddle thrust: ${thrust.toString()}');
   }
 
   void stopMovement() {

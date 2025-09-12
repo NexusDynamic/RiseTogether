@@ -41,9 +41,6 @@ class TeamActionStream {
   void addAction(GameAction action) {
     _currentActions[action.playerId] = action.action;
     _controller.add(action);
-    // if (action.action != PaddleAction.none) {
-    //   print('ACTION DEBUG: TeamStream(teamId=$teamId, pos=$position) received action: ${action.action} from ${action.playerId}');
-    // }
   }
 
   void removePlayer(String playerId) {
@@ -86,6 +83,8 @@ class TeamActionStream {
         final playerId = entry.key;
         final action = entry.value;
         final playerBitflag = playerBitflags[playerId] ?? 0;
+
+        // Debug logging when there's an active action
 
         if (action == PaddleAction.left) {
           leftBitflags |= playerBitflag;

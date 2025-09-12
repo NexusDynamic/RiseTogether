@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flame/game.dart';
@@ -53,6 +55,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
     );
     networkCoordinator = NetworkCoordinator(_actionManager);
     game = RiseTogetherGame(actionManager: _actionManager);
+
     _initializeCoordination();
   }
 
@@ -170,7 +173,7 @@ class _RiseTogetherAppState extends State<RiseTogetherApp>
     }
 
     // Start the game engine
-    game.resumeEngine();
+    game.resumeGame();
     appLog.info('Game engine started');
   }
 
@@ -238,8 +241,8 @@ void main() async {
   debugPrint('DEBUG - Logging status: $status');
 
   await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
   ]);
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   RiseTogetherPackageInfo().init(packageInfo);

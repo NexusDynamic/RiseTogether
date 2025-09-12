@@ -31,62 +31,44 @@ class MainMenuUI extends StatelessWidget
       child: Column(
         children: [
           SizedBox(height: 40),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              // Network status in top left
-              Container(
-                alignment: Alignment.center,
-                child: SizedBox(
-                  width: screenWidth * 0.2,
-                  child: _buildNetworkStatus(context),
+
+          Align(
+            alignment: AlignmentGeometry.center,
+            child: Column(
+              children: [
+                Text(
+                  'Rise Together',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color.fromARGB(255, 255, 255, 255),
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Align(
-                alignment: AlignmentGeometry.center,
-                child: Column(
-                  children: [
-                    Text(
-                      'Rise Together',
+                SizedBox(height: 10),
+                // Tournament Score Display
+                ChangeNotifierProvider.value(
+                  value: game.tournamentManager,
+                  builder: (ctx, _) {
+                    final tournamentManager = Provider.of<TournamentManager>(
+                      ctx,
+                    );
+                    return Text(
+                      'Tournament Score - Team 1: ${tournamentManager.team1RoundWins} | Team 2: ${tournamentManager.team2RoundWins}',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Color.fromARGB(255, 255, 255, 255),
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
+                        color: Color.fromARGB(200, 255, 255, 255),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        backgroundColor: Color.fromARGB(100, 0, 0, 0),
                       ),
-                    ),
-                    SizedBox(height: 10),
-                    // Tournament Score Display
-                    ChangeNotifierProvider.value(
-                      value: game.tournamentManager,
-                      builder: (ctx, _) {
-                        final tournamentManager =
-                            Provider.of<TournamentManager>(ctx);
-                        return Text(
-                          'Tournament Score - Team 1: ${tournamentManager.team1RoundWins} | Team 2: ${tournamentManager.team2RoundWins}',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Color.fromARGB(200, 255, 255, 255),
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            backgroundColor: Color.fromARGB(100, 0, 0, 0),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                    );
+                  },
                 ),
-              ),
-              // Settings icon in top right corner
-              SizedBox(
-                width: screenWidth * 0.2,
-                child: Container(
-                  alignment: Alignment.center,
-                  child: _buildSettingsButton(context),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
+
           SizedBox(height: 50),
           Expanded(
             child: SizedBox(
@@ -132,6 +114,17 @@ class MainMenuUI extends StatelessWidget
               ),
             ),
           ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              // Network status
+              _buildNetworkStatus(context),
+
+              // Settings icon right
+              _buildSettingsButton(context),
+            ],
+          ),
+          SizedBox(height: 40),
         ],
       ),
     );

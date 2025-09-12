@@ -93,7 +93,7 @@ class InGameUI extends StatelessWidget
       value: _simulatedController,
       child: Stack(
         children: [
-          _buildTimeDisplay(context, screenWidth),
+          _buildTimeDisplay(context, screenWidth, screenHeight),
           _buildTeamControls(context, screenWidth, screenHeight),
           _buildPlayerInputIndicators(context, screenWidth, screenHeight),
         ],
@@ -101,46 +101,52 @@ class InGameUI extends StatelessWidget
     );
   }
 
-  Widget _buildTimeDisplay(BuildContext context, double screenWidth) {
+  Widget _buildTimeDisplay(
+    BuildContext context,
+    double screenWidth,
+    double screenHeight,
+  ) {
     return Positioned(
-      top: 10,
+      top: game.verticalOrientation ? null : 10,
+      bottom: game.verticalOrientation ? screenHeight * 0.5 : null,
       width: screenWidth,
       child: Center(
-        child: Column(
+        child: Stack(
           children: [
-            // Tournament Progress
-            ChangeNotifierProvider.value(
-              value: game.tournamentManager,
-              builder: (ctx, _) {
-                final tournamentManager = Provider.of<TournamentManager>(ctx);
-                return Text(
-                  tournamentManager.levelProgress,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    backgroundColor: Color.fromARGB(150, 0, 0, 0),
-                    color: Color.fromARGB(200, 255, 255, 255),
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                );
-              },
-            ),
-            SizedBox(height: 5),
+            // // Tournament Progress
+            // ChangeNotifierProvider.value(
+            //   value: game.tournamentManager,
+            //   builder: (ctx, _) {
+            //     final tournamentManager = Provider.of<TournamentManager>(ctx);
+            //     return Text(
+            //       tournamentManager.levelProgress,
+            //       textAlign: TextAlign.center,
+            //       style: const TextStyle(
+            //         backgroundColor: Color.fromARGB(150, 0, 0, 0),
+            //         color: Color.fromARGB(200, 255, 255, 255),
+            //         fontSize: 14,
+            //         fontWeight: FontWeight.bold,
+            //       ),
+            //     );
+            //   },
+            // ),
+            // SizedBox(height: 5),
             // Time Remaining
             ChangeNotifierProvider.value(
               value: game.timeProvider,
-              builder: (ctx, _) => Text(
-                'Time: ${Provider.of<TimeProvider>(ctx).formattedTime}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  backgroundColor: Color.fromARGB(150, 0, 0, 0),
-                  color: Color.fromARGB(255, 255, 255, 255),
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              builder: (ctx, _) => Center(
+                child: Text(
+                  Provider.of<TimeProvider>(ctx).formattedTime,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    backgroundColor: Color.fromARGB(150, 0, 0, 0),
+                    color: Color.fromARGB(255, 255, 255, 255),
+                    fontSize: 25,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
-            SizedBox(height: 5),
             // Distance Display
             ChangeNotifierProvider.value(
               value: game.distanceTracker,
@@ -161,15 +167,30 @@ class InGameUI extends StatelessWidget
                   rightTeamId,
                 );
 
-                return Text(
-                  '$leftDistance | $rightDistance',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    backgroundColor: Color.fromARGB(150, 0, 0, 0),
-                    color: Color.fromARGB(200, 255, 255, 255),
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                  ),
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      leftDistance,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        backgroundColor: Color.fromARGB(150, 0, 0, 0),
+                        color: Color.fromARGB(200, 255, 255, 255),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      rightDistance,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        backgroundColor: Color.fromARGB(150, 0, 0, 0),
+                        color: Color.fromARGB(200, 255, 255, 255),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -234,7 +255,7 @@ class InGameUI extends StatelessWidget
             ),
             // Current player controls - Right side
             Positioned(
-              right: screenWidth / 2 + 20,
+              right: game.verticalOrientation ? 20 : screenWidth / 2 + 20,
               bottom: 50,
               child: _buildCurrentPlayerControls(
                 side: 'right',
@@ -591,11 +612,17 @@ class InGameUI extends StatelessWidget
     if (teamPlayers.isEmpty) return SizedBox.shrink();
 
     // Calculate positions - indicators go under the paddles (around 60% down)
-    final teamWidth = screenWidth / 2;
-    final leftOffset = isLeftSide ? 0.0 : screenWidth / 2;
-    final indicatorY = screenHeight * 0.6; // Under the paddles
-    final indicatorSize = 8.0;
-    final indicatorSpacing = 4.0;
+    final teamWidth = game.verticalOrientation ? screenWidth : screenWidth / 2;
+    final leftOffset = game.verticalOrientation
+        ? 0.0
+        : isLeftSide
+        ? 0.0
+        : screenWidth / 2;
+    final indicatorY = game.verticalOrientation
+        ? isLeftSide
+              ? screenHeight * 0.8
+              : screenHeight * 0.3
+        : screenHeight * 0.6; // Under the paddles
 
     return Positioned(
       left: leftOffset,
@@ -604,72 +631,85 @@ class InGameUI extends StatelessWidget
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Left input indicators
-          _buildDirectionIndicators(
+          // Left paddle bar
+          _buildPaddleBar(
             teamPlayers: teamPlayers,
             activeBitflags: leftBitflags,
-            indicatorSize: indicatorSize,
-            indicatorSpacing: indicatorSpacing,
           ),
           SizedBox(width: 20), // Space between left and right sides
-          // Right input indicators
-          _buildDirectionIndicators(
+          // Right paddle bar
+          _buildPaddleBar(
             teamPlayers: teamPlayers,
             activeBitflags: rightBitflags,
-            indicatorSize: indicatorSize,
-            indicatorSpacing: indicatorSpacing,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDirectionIndicators({
+  Widget _buildPaddleBar({
     required List<Map<String, dynamic>> teamPlayers,
     required int activeBitflags,
-    required double indicatorSize,
-    required double indicatorSpacing,
   }) {
-    final activeIndicators = <Widget>[];
+    if (teamPlayers.isEmpty) {
+      return SizedBox(width: 80, height: 16);
+    }
 
-    for (final player in teamPlayers) {
-      final playerBitflag = player['bitflagValue'] as int;
-      final playerIndex = player['index'] as int;
+    const paddleWidth = 80.0;
+    const paddleHeight = 16.0;
+    const segmentSpacing = 1.0;
 
-      if (activeBitflags & playerBitflag != 0) {
-        // This player is pressing this direction
-        final playerColor = game.getPlayerColor(playerIndex);
-        activeIndicators.add(
-          Container(
-            width: indicatorSize,
-            height: indicatorSize,
-            margin: EdgeInsets.symmetric(horizontal: indicatorSpacing / 2),
-            decoration: BoxDecoration(
-              color: playerColor,
-              shape: BoxShape.rectangle, // Square blocks
-              borderRadius: BorderRadius.circular(
-                1,
-              ), // Slightly rounded corners
-              border: Border.all(color: CupertinoColors.white, width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.4),
-                  spreadRadius: 1,
-                  blurRadius: 2,
-                  offset: Offset(0, 1),
-                ),
-              ],
-            ),
+    final segmentWidth =
+        (paddleWidth - (teamPlayers.length - 1) * segmentSpacing) /
+        teamPlayers.length;
+
+    return Container(
+      width: paddleWidth,
+      height: paddleHeight,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: CupertinoColors.black.withValues(alpha: 0.3),
+            spreadRadius: 1,
+            blurRadius: 3,
+            offset: Offset(0, 2),
           ),
-        );
-      }
-    }
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: teamPlayers.asMap().entries.map((entry) {
+            final index = entry.key;
+            final player = entry.value;
+            final playerBitflag = player['bitflagValue'] as int;
+            final playerIndex = player['index'] as int;
+            final playerColor = game.getPlayerColor(playerIndex);
 
-    if (activeIndicators.isEmpty) {
-      return SizedBox(width: indicatorSize, height: indicatorSize);
-    }
+            // Check if this player is currently pressing this direction
+            final isActive = activeBitflags & playerBitflag != 0;
+            final opacity = isActive ? 1.0 : 0.3;
 
-    return Row(mainAxisSize: MainAxisSize.min, children: activeIndicators);
+            return Container(
+              width: segmentWidth,
+              height: paddleHeight,
+              margin: EdgeInsets.only(
+                right: index < teamPlayers.length - 1 ? segmentSpacing : 0,
+              ),
+              decoration: BoxDecoration(
+                color: playerColor.withValues(alpha: opacity),
+                border: Border.all(
+                  color: CupertinoColors.white.withValues(alpha: 0.5),
+                  width: 0.5,
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
   }
 
   void _sendAction(int teamId, String playerId, PaddleAction action) {

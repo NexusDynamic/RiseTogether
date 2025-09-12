@@ -1,5 +1,5 @@
 import 'package:flame/camera.dart';
-import 'package:flame/components.dart';
+import 'package:flame/components.dart' hide Timer;
 import 'package:flame/flame.dart';
 import 'package:flame/game.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
@@ -7,7 +7,6 @@ import 'package:flame/events.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/models/player_action.dart';
-import 'package:rise_together/src/models/team.dart';
 import 'package:rise_together/src/services/log_service.dart';
 import 'package:rise_together/src/settings/app_settings.dart';
 import 'package:rise_together/src/game/action_system.dart';
@@ -20,8 +19,10 @@ import 'package:rise_together/src/attributes/resetable.dart';
 import 'package:rise_together/src/services/network_coordinator.dart'
     show PlayerAssignment, NetworkCoordinator;
 import 'package:rise_together/src/models/team_context.dart';
+import 'package:synchronized/synchronized.dart';
 import 'rise_together_world.dart';
 import 'dart:collection';
+import 'dart:async';
 
 /// Notifier for player input bitflag changes
 class BitflagsNotifier with ChangeNotifier {
@@ -115,23 +116,42 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   final DistanceTracker distanceTracker = DistanceTracker();
   // final PlayerContext _playerContext = PlayerContext();
 
+  Timer? _bgTicker;
+  // ~60 Hz ticker
+  static const _tickInterval = Duration(microseconds: 16667);
+  // track delta time for background ticker
+  int _dt = 16667;
+  // track last tick time for background ticker
+  int _lastTick = DateTime.now().microsecondsSinceEpoch;
+
   // Action provider injected from app - abstracts networking
   ActionProvider? _actionProvider;
   bool get isConfigured => _actionProvider != null;
 
+  bool _gameRunning = false;
+  bool get isGameRunning => _gameRunning;
+
+  /// Usually the game is intended for horizontal w/left/right teams
+  /// Instead, if vertical, the player's team is on the bottom and opponent on
+  /// top
+  final bool verticalOrientation = true;
   // Cached player bitflags mapping to avoid recalculation
   List<Map<String, dynamic>> get playerBitFlagsList =>
       List.unmodifiable(_playerBitflagsList);
   final List<Map<String, dynamic>> _playerBitflagsList = [];
-  Map<String, int>? _cachedPlayerBitflags;
+  final Map<String, int> _cachedPlayerBitflags = {};
   int? _cachedPlayerCount;
 
   // Notifier for bitflag changes (for UI reactivity)
   final BitflagsNotifier _bitflagsNotifier = BitflagsNotifier();
 
+  @override
+  bool get pauseWhenBackgrounded => true;
+
   // Authoritative physics support
   bool _isAuthoritativePhysics = false;
-  final Queue<PhysicsSnapshot> _stateBuffer = Queue<PhysicsSnapshot>();
+  final ListQueue<PhysicsSnapshot> _stateBuffer = ListQueue<PhysicsSnapshot>();
+  final Lock _stateLock = Lock();
   static const int stateBufferSize = 3; // Keep 3 frames for interpolation
 
   // Team player counts for thrust calculation (received from coordinator)
@@ -158,6 +178,57 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     paused = true; // Start paused
   }
 
+  /// Must always be called internally when gameplay is paused or stopped
+  /// This does not apply when the app is backgrounded (but pauseEngine()
+  /// is called)
+  void _pauseEngine() {
+    super.pauseEngine();
+    _gameRunning = false;
+  }
+
+  /// Must always be called internally when gameplay is started or resumed
+  /// When app is foregrounded, resumeEngine() is called automatically
+  void _resumeEngine() {
+    super.resumeEngine();
+    _gameRunning = true;
+  }
+
+  @override
+  void lifecycleStateChange(AppLifecycleState state) {
+    super.lifecycleStateChange(state);
+    switch (state) {
+      case AppLifecycleState.resumed:
+      case AppLifecycleState.inactive:
+        // Detach timer
+        appLog.info('App resumed/foregrounded - stopping background ticker');
+        _bgTicker?.cancel();
+        _bgTicker = null;
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        if (_bgTicker != null && _bgTicker!.isActive) {
+          return;
+        }
+        appLog.info('App paused/backgrounded - starting background ticker');
+        // Attach timer
+        _bgTicker = Timer.periodic(_tickInterval, _bgTickerTick);
+        break;
+    }
+  }
+
+  void _bgTickerTick(Timer _) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    _dt = now - _lastTick;
+    _lastTick = now;
+    if (WidgetsBinding.instance.framesEnabled ||
+        !paused ||
+        (paused && !isGameRunning)) {
+      return;
+    }
+    renderBox.gameLoop?.step(_dt / Duration.microsecondsPerSecond);
+  }
+
   /// Configure the game with an action provider
   /// This separates asset loading from networking configuration
   Future<void> configure(ActionProvider actionProvider) async {
@@ -167,7 +238,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     _actionProvider = actionProvider;
 
     // Invalidate cached bitflags when changing providers
-    _cachedPlayerBitflags = null;
+    _cachedPlayerBitflags.clear();
     _cachedPlayerCount = null;
 
     // Initialize bitflag notifier
@@ -183,6 +254,10 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     appLog.info(
       'Game role - isCoordinator: ${actionProvider.isCoordinator}, deviceId: ${(actionProvider is NetworkActionProvider) ? actionProvider.networkCoordinator.deviceId : 'local'}',
     );
+    // set world controller authoritative flag
+    for (final controller in worldControllers.values) {
+      controller.shouldUpdateParallax = _isAuthoritativePhysics;
+    }
 
     // await _initializeActionSystem();
 
@@ -227,7 +302,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       appLog.info('Physics state broadcasting started for coordinator');
     }
 
-    resumeEngine();
+    _resumeEngine();
     appLog.info('Game started');
   }
 
@@ -244,7 +319,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     }
 
     await _actionProvider!.stopGameplay();
-    pauseEngine();
+    _pauseEngine();
     appLog.info('Game stopped');
   }
 
@@ -339,58 +414,75 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   /// Update team contexts for all world controllers when assignments change
   void _updateTeamContexts() {
     final myTeamId = _actionProvider!.currentPlayerAssignment.teamId;
-    final myTeam = Team.fromId(myTeamId);
-    final opponentTeam = myTeam.opponent;
+    final opponentTeamId = myTeamId == 0 ? 1 : 0;
+
     final myTeamPlayers = _actionProvider!.playerAssignments
         .where((p) => p.teamId == myTeamId)
         .toList();
     final opponentTeamPlayers = _actionProvider!.playerAssignments
-        .where((p) => p.teamId != myTeamId)
+        .where((p) => p.teamId == opponentTeamId)
         .toList();
 
-    final myTeamStream = actionManager.getTeamStream(myTeamId)!;
-    final opponentTeamStream = actionManager.getTeamStream(opponentTeam.id)!;
+    // Get or create the correct team streams
+    TeamActionStream? myTeamStream = actionManager.getTeamStream(myTeamId);
+    TeamActionStream? opponentTeamStream = actionManager.getTeamStream(
+      opponentTeamId,
+    );
+
+    // Create streams if they don't exist
+    if (myTeamStream == null) {
+      myTeamStream = actionManager.createTeamStream(
+        TeamDisplayPosition.left,
+        5,
+        getPlayerBitflags: _getPlayerBitflagsMap,
+      );
+      myTeamStream.teamId = myTeamId;
+    }
+
+    if (opponentTeamStream == null) {
+      opponentTeamStream = actionManager.createTeamStream(
+        TeamDisplayPosition.right,
+        5,
+        getPlayerBitflags: _getPlayerBitflagsMap,
+      );
+      opponentTeamStream.teamId = opponentTeamId;
+    }
+
+    // Update stream positions
+    myTeamStream.position = TeamDisplayPosition.left;
+    opponentTeamStream.position = TeamDisplayPosition.right;
 
     final leftWorldController = worldControllers[TeamDisplayPosition.left]!;
     final rightWorldController = worldControllers[TeamDisplayPosition.right]!;
 
-    // Always put player's team on the left display position
-    myTeamStream.position = TeamDisplayPosition.left;
-    opponentTeamStream.position = TeamDisplayPosition.right;
+    // Create new team contexts with the correct team IDs and assignments
+    final myTeamContext = TeamContext(
+      teamId: myTeamId,
+      displayPosition: TeamDisplayPosition.left,
+      isPlayerTeam: true,
+      players: myTeamPlayers,
+      actionStream: myTeamStream,
+    );
 
-    // Get the correct team contexts based on their fixed team IDs
-    TeamContext myTeamContext;
-    TeamContext opponentTeamContext;
-    
-    if (leftWorldController.teamContext.teamId == myTeamId) {
-      // Left world already has my team's context
-      myTeamContext = leftWorldController.teamContext;
-      opponentTeamContext = rightWorldController.teamContext;
-    } else {
-      // Left world has opponent's context, right world has my team's context
-      myTeamContext = rightWorldController.teamContext;
-      opponentTeamContext = leftWorldController.teamContext;
-    }
-
-    // Update team context properties and players
-    myTeamContext.isPlayerTeam = true;
-    myTeamContext.displayPosition = TeamDisplayPosition.left;
-    myTeamContext.assign(myTeamPlayers);
-
-    opponentTeamContext.isPlayerTeam = false;
-    opponentTeamContext.displayPosition = TeamDisplayPosition.right;
-    opponentTeamContext.assign(opponentTeamPlayers);
-
-    appLog.info(
-      'Updated team contexts: Left=Team${myTeamContext.teamId} (${myTeamContext.players.length} players), Right=Team${opponentTeamContext.teamId} (${opponentTeamContext.players.length} players)',
+    final opponentTeamContext = TeamContext(
+      teamId: opponentTeamId,
+      displayPosition: TeamDisplayPosition.right,
+      isPlayerTeam: false,
+      players: opponentTeamPlayers,
+      actionStream: opponentTeamStream,
     );
 
     // Set the contexts to the correct world controllers
     leftWorldController.setTeamContext(myTeamContext);
     rightWorldController.setTeamContext(opponentTeamContext);
-    
+
+    appLog.info(
+      'Updated team contexts: Left=Team$myTeamId (${myTeamPlayers.length} players), Right=Team$opponentTeamId (${opponentTeamPlayers.length} players)',
+    );
+
     initPlayerBitflags();
-    // force re-linking of overlays
+
+    // Force re-linking of overlays
     if (overlays.isActive('inGameUI')) {
       overlays.remove('inGameUI');
       overlays.add('inGameUI');
@@ -407,39 +499,36 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     final playerCount =
         networkProvider.networkCoordinator.playerAssignments.length;
 
-    // Check cache validity
-    if (_cachedPlayerBitflags != null && _cachedPlayerCount == playerCount) {
-      return _cachedPlayerBitflags!;
-    }
+    // Initialize structure if needed or player count changed
+    if (_cachedPlayerCount != playerCount) {
+      initPlayerBitflags();
+      _cachedPlayerBitflags.clear();
 
-    // Recalculate and cache
-    initPlayerBitflags();
-    final result = <String, int>{};
+      // Create the static mapping structure with assigned bitflag values
+      for (final player in _playerBitflagsList) {
+        final playerId = player['playerId'] as String;
+        final nodeId = player['nodeId'] as String;
+        final bitflagValue = player['bitflagValue'] as int;
+        final remotePlayerKey = 'remote_player_${nodeId.hashCode.abs()}';
 
-    for (final player in _playerBitflagsList) {
-      final playerId = player['playerId'] as String;
-      final nodeId = player['nodeId'] as String;
-      final bitflagValue = player['bitflagValue'] as int;
+        // Also create the hash that will come from network messages
+        final networkPlayerKey = 'remote_player_${playerId.hashCode.abs()}';
 
-      // Standardize on nodeId (UUID) as the authoritative player identifier
-      // Map both the nodeId and its remote_player hash version
-      result[nodeId] = bitflagValue;
-      result['remote_player_${nodeId.hashCode.abs()}'] = bitflagValue;
+        // Map all possible player ID formats to their assigned bitflag value
+        _cachedPlayerBitflags[nodeId] = bitflagValue;
+        _cachedPlayerBitflags[remotePlayerKey] = bitflagValue;
+        _cachedPlayerBitflags[networkPlayerKey] = bitflagValue;
 
-      // Legacy support: also map playerId in case it's used somewhere
-      if (playerId != nodeId) {
-        result[playerId] = bitflagValue;
+        // Legacy support: also map playerId in case it's used somewhere
+        if (playerId != nodeId) {
+          _cachedPlayerBitflags[playerId] = bitflagValue;
+        }
       }
 
-      // Debug logging
-      appLog.info(
-        'Player bitflag mapping: nodeId=$nodeId, playerId=$playerId, bitflag=$bitflagValue',
-      );
+      _cachedPlayerCount = playerCount;
     }
 
-    _cachedPlayerBitflags = result;
-    _cachedPlayerCount = playerCount;
-    return result;
+    return _cachedPlayerBitflags;
   }
 
   /// Get current left input bitflags for a team (for visual indicators)
@@ -517,10 +606,12 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     required double longMultiplier,
     double shortMultiplier = 1.0,
   }) {
-    return Vector2(
-      canvasSize.x * longMultiplier,
-      canvasSize.y * shortMultiplier,
-    );
+    return !verticalOrientation
+        ? Vector2(canvasSize.x * longMultiplier, canvasSize.y * shortMultiplier)
+        : Vector2(
+            canvasSize.x * shortMultiplier,
+            canvasSize.y * longMultiplier,
+          );
   }
 
   CameraComponent _buildCamera(
@@ -531,8 +622,12 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     final zoomLevel = viewportSize.x / level.horizontalWidth;
     final cameraPos = alignedVector(
       longMultiplier: pos == TeamDisplayPosition.left
-          ? 0.0
-          : 0.5, // Left = 0.0, Right = 0.5
+          ? !verticalOrientation
+                ? 0.0
+                : 0.5
+          : !verticalOrientation
+          ? 0.5
+          : 0.0,
       shortMultiplier: 0.0,
     );
 
@@ -624,12 +719,13 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       getPlayerBitflags: _getPlayerBitflagsMap,
     );
 
+    teamStream.teamId = pos == TeamDisplayPosition.left ? 0 : 1;
+
     final teamContext = TeamContext.byPosition(pos, actionStream: teamStream);
     final worldController = WorldController(
       world: world,
-      shouldUpdateParallax:
-          _isAuthoritativePhysics, // Only coordinator updates parallax via WorldController
-      configuredTeamPlayerCount: 0,
+      shouldUpdateParallax: _isAuthoritativePhysics,
+      configuredTeamPlayerCount: 1, // will be updated later
       teamContext: teamContext,
     );
 
@@ -704,7 +800,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     }
 
     // Pause the engine
-    pauseEngine();
+    _pauseEngine();
   }
 
   @override
@@ -726,7 +822,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     tournamentManager.reset();
     distanceTracker.reset();
     // Pause the engine until user starts again
-    pauseEngine();
+    _pauseEngine();
 
     appLog.info('Game state reset complete');
   }
@@ -737,7 +833,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       return;
     }
     await _actionProvider!.resumeGameplay();
-    resumeEngine();
+    _resumeEngine();
     appLog.info('Game resumed');
   }
 
@@ -893,7 +989,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     distanceTracker.resetDistances();
 
     // Pause the engine until user starts again
-    pauseEngine();
+    _pauseEngine();
 
     appLog.info('Level advancement complete');
   }
@@ -919,9 +1015,9 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     appLog.info('Physics state provider set up for coordinator');
   }
 
-  final List<List<double>> _lastStateBuffer = List.filled(
+  final List<List<double>> _lastStateBuffer = List.generate(
     2,
-    List.filled(7, 0.0, growable: false),
+    (_) => List.filled(7, 0.0, growable: false),
     growable: false,
   );
 
@@ -957,7 +1053,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   }
 
   /// Handle incoming physics state updates
-  void _handleIncomingPhysicsState(List<double> stateData) {
+  Future<void> _handleIncomingPhysicsState(List<double> stateData) async {
     if (stateData.length != 14) {
       appLog.warning('Invalid physics state data length: ${stateData.length}');
       return;
@@ -965,19 +1061,20 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     final dtNow = DateTime.now();
     final now = dtNow.millisecondsSinceEpoch / 1000.0;
     final snapshot = PhysicsSnapshot(timestamp: now, state: stateData);
+    await _stateLock.synchronized(() {
+      _stateBuffer.addFirst(snapshot);
+      appLog.logData(
+        'app_data',
+        'PHYSICS_STATE_RECEIVED',
+        data: {'state': stateData},
+        timestamp: dtNow,
+      );
 
-    _stateBuffer.add(snapshot);
-    appLog.logData(
-      'app_data',
-      'PHYSICS_STATE_RECEIVED',
-      data: {'state': stateData},
-      timestamp: dtNow,
-    );
-
-    // Keep buffer size manageable
-    while (_stateBuffer.length > stateBufferSize) {
-      _stateBuffer.removeFirst();
-    }
+      // Keep buffer size manageable
+      while (_stateBuffer.length > stateBufferSize) {
+        _stateBuffer.removeLast();
+      }
+    });
   }
 
   /// Interpolate physics state for smooth visuals on followers
@@ -989,7 +1086,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       return; // Need at least 1 state
     }
 
-    final latestState = _stateBuffer.last;
+    final latestState = _stateBuffer.first;
 
     // Apply latest state directly to each world - only for its own team
     for (final worldController in worldControllers.values) {
@@ -1030,11 +1127,15 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
             .toInt(); // stateR
         _bitflagsNotifier.updateBitflags(teamId, leftBitflags, rightBitflags);
 
-        // Update parallax background for participants using proportional thrust
+        // // Update parallax background for participants using proportional thrust
         if (!_isAuthoritativePhysics) {
           final leftPlayerCount = _countSetBits(leftBitflags);
           final rightPlayerCount = _countSetBits(rightBitflags);
-          final teamPlayerCount = _teamPlayerCounts[teamId.toString()] ?? 5;
+
+          final teamPlayerCount = worldController.configuredTeamPlayerCount > 0
+              ? worldController.configuredTeamPlayerCount
+              : 1; // Default to 1 to avoid division by zero
+
           final thrustPerPlayer = 1.0 / teamPlayerCount;
 
           // Calculate proportional thrust: same as coordinator logic
