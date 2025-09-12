@@ -1,19 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:rise_together/src/services/log_service.dart';
 
 void main() async {
   final logService = LogService.instance;
 
-  print('=== RiseTogether Dual Logging System Demo ===\n');
+  debugPrint('=== RiseTogether Dual Logging System Demo ===\n');
 
   // 1. App Logging Configuration
-  print('1. Configuring App Logging (console + file)...');
+  debugPrint('1. Configuring App Logging (console + file)...');
   await logService.configureAppLogging(
     destination: LogDestination.both,
     filePath: 'logs/app.log',
   );
 
   // 2. Create High-Frequency Data Loggers
-  print('2. Creating specialized data loggers...');
+  debugPrint('2. Creating specialized data loggers...');
 
   // EEG data logger (TSV format for analysis tools)
   await logService.createFileLogger(
@@ -36,7 +37,7 @@ void main() async {
     format: 'tsv',
   );
 
-  print('3. Logging different types of data...\n');
+  debugPrint('3. Logging different types of data...\n');
 
   // 3. App Logging (goes to console and file)
   logService.info('Application started successfully');
@@ -44,7 +45,7 @@ void main() async {
   logService.severe('This is an error message');
 
   // 4. High-frequency EEG data (file only, no console spam)
-  print('Simulating high-frequency EEG data logging...');
+  debugPrint('Simulating high-frequency EEG data logging...');
   for (int i = 0; i < 1000; i++) {
     logService.logData(
       'eeg_data',
@@ -66,7 +67,7 @@ void main() async {
   }
 
   // 5. Sensor data logging
-  print('Logging sensor data...');
+  debugPrint('Logging sensor data...');
   for (int i = 0; i < 50; i++) {
     logService.logData(
       'sensor_data',
@@ -84,7 +85,7 @@ void main() async {
   }
 
   // 6. Network metrics
-  print('Logging network metrics...');
+  debugPrint('Logging network metrics...');
   for (int i = 0; i < 20; i++) {
     logService.logData(
       'network_metrics',
@@ -105,20 +106,20 @@ void main() async {
   );
 
   // 8. Wait a bit for all data to be flushed to files
-  print('\nWaiting for data to be written to files...');
+  debugPrint('\nWaiting for data to be written to files...');
   await Future.delayed(Duration(seconds: 2));
 
   // 9. Clean shutdown
-  print('Shutting down logging system...');
+  debugPrint('Shutting down logging system...');
   await logService.dispose();
 
-  print('\n=== Demo completed! ===');
-  print('Check the following files:');
-  print('- logs/app.log (app logs in readable format)');
-  print('- logs/eeg_data.tsv (high-frequency EEG data)');
-  print('- logs/sensor_data.csv (sensor data in CSV format)');
-  print('- logs/network_metrics.tsv (network metrics)');
-  print(
+  debugPrint('\n=== Demo completed! ===');
+  debugPrint('Check the following files:');
+  debugPrint('- logs/app.log (app logs in readable format)');
+  debugPrint('- logs/eeg_data.tsv (high-frequency EEG data)');
+  debugPrint('- logs/sensor_data.csv (sensor data in CSV format)');
+  debugPrint('- logs/network_metrics.tsv (network metrics)');
+  debugPrint(
     '\nNote: App logs also appeared in console, but data logs are file-only for performance.',
   );
 }

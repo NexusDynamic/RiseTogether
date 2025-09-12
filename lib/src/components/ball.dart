@@ -19,9 +19,10 @@ class Ball extends BodyComponent<RiseTogetherGame>
   bool isRising = false;
   final double radius;
   @override
-  final RiseTogetherWorld world;
+  RiseTogetherWorld get world => _world;
+  final RiseTogetherWorld _world;
 
-  Ball(this.world, {required this.radius, super.paint, Vector2? pos})
+  Ball(this._world, {required this.radius, super.paint, Vector2? pos})
     : startPosition = pos ?? Vector2.zero(),
       super();
 

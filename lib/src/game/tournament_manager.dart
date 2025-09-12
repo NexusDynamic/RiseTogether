@@ -112,7 +112,9 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
       return;
     }
 
-    appLog.info('Completing level: currentRound=$_currentRound, currentLevel=$_currentLevel, levelsPerRound=$_levelsPerRound');
+    appLog.info(
+      'Completing level: currentRound=$_currentRound, currentLevel=$_currentLevel, levelsPerRound=$_levelsPerRound',
+    );
 
     final levelResult = LevelResult(
       levelIndex: _currentLevel,
@@ -137,7 +139,9 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
 
     // Advance to next level
     _currentLevel++;
-    appLog.info('Advanced to level: $_currentLevel (isRoundComplete: $isRoundComplete)');
+    appLog.info(
+      'Advanced to level: $_currentLevel (isRoundComplete: $isRoundComplete)',
+    );
 
     // Check if round is complete
     if (isRoundComplete) {
@@ -145,7 +149,9 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
       _completeRound();
     }
 
-    appLog.info('After completeLevel: currentRound=$_currentRound, currentLevel=$_currentLevel');
+    appLog.info(
+      'After completeLevel: currentRound=$_currentRound, currentLevel=$_currentLevel',
+    );
     notifyListeners();
   }
 
@@ -157,7 +163,9 @@ class TournamentManager extends ChangeNotifier with AppLogging, Resetable {
 
     _currentRound++;
     _currentLevel = 0;
-    appLog.info('Round completed, advanced to: currentRound=$_currentRound, currentLevel=$_currentLevel (isTournamentComplete: $isTournamentComplete)');
+    appLog.info(
+      'Round completed, advanced to: currentRound=$_currentRound, currentLevel=$_currentLevel (isTournamentComplete: $isTournamentComplete)',
+    );
 
     if (isTournamentComplete) {
       appLog.info('Tournament is complete, calling _completeTournament()');

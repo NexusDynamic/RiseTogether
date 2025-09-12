@@ -73,8 +73,6 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   String? _deviceName;
   DateTime? _scheduledStartTime;
 
-  bool _inputAvailable = false;
-
   final Map<String, PlayerAssignment> _playerAssignments = {};
   final Set<String> _readyNodes = {};
   Map<String, dynamic>? _gameConfiguration;
@@ -529,7 +527,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   }
 
   Future<void> processPendingInputs() async {
-    if (!_inputAvailable || _gameDataStream == null) {
+    if (_gameDataStream == null) {
       return;
     }
   }
@@ -857,11 +855,9 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       for (final entry in _gameConfiguration!.entries) {
         mergedConfig[entry.key] = entry.value;
       }
-      print('Effective game configuration: $mergedConfig');
       return mergedConfig;
     }
     // Use default configuration
-    print('Using default game configuration: $defaultConfig');
     return defaultConfig;
   }
 
