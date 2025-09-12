@@ -249,11 +249,13 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   }
 
   /// Send action through the action provider
-  void sendAction(int teamId, String playerId, PaddleAction action) {
+  void sendAction(int _, String _, PaddleAction action) {
     if (!isConfigured) {
       appLog.warning('Attempted to send action but game not configured');
       return;
     }
+    final teamId = _actionProvider!.currentPlayerAssignment.teamId;
+    final playerId = _actionProvider!.currentPlayerAssignment.playerId;
     _actionProvider!.networkBridge.sendAction(teamId, playerId, action);
   }
 
@@ -322,24 +324,19 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     for (final worldController in worldControllers.values) {
       final teamId = worldController.teamContext.teamId;
 
-      final teamStream = actionManager.getTeamStream(teamId);
-      final thrust = teamStream?.getCurrentThrust();
+      final teamStream = worldController.actionStream;
+      final thrust = teamStream.getCurrentThrust();
 
-      if (thrust != null) {
-        // Update bitflags in notifier (will notify if changed)
-        _bitflagsNotifier.updateBitflags(
-          teamId,
-          thrust.leftBitflags,
-          thrust.rightBitflags,
-        );
-      }
+      // Update bitflags in notifier (will notify if changed)
+      _bitflagsNotifier.updateBitflags(
+        teamId,
+        thrust.leftBitflags,
+        thrust.rightBitflags,
+      );
     }
   }
 
   /// Update team contexts for all world controllers when assignments change
-  /// this needs to change to only update things that need changing when
-  /// the team changes.
-  /// TODO: This is pretty disgusting. FIX!
   void _updateTeamContexts() {
     final myTeamId = _actionProvider!.currentPlayerAssignment.teamId;
     final myTeam = Team.fromId(myTeamId);
@@ -354,22 +351,28 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     final myTeamStream = actionManager.getTeamStream(myTeamId)!;
     final opponentTeamStream = actionManager.getTeamStream(opponentTeam.id)!;
 
-    final TeamContext myTeamContext;
-    final TeamContext opponentTeamContext;
+    final leftWorldController = worldControllers[TeamDisplayPosition.left]!;
+    final rightWorldController = worldControllers[TeamDisplayPosition.right]!;
 
-    final leftWorldController = worldControllers[TeamDisplayPosition.left];
-    final rightWorldController = worldControllers[TeamDisplayPosition.right];
-    if (myTeamStream.position != TeamDisplayPosition.left) {
-      // need to swap.
-      myTeamStream.position = TeamDisplayPosition.left;
-      opponentTeamStream.position = TeamDisplayPosition.right;
-      myTeamContext = rightWorldController!.teamContext;
-      opponentTeamContext = leftWorldController!.teamContext;
+    // Always put player's team on the left display position
+    myTeamStream.position = TeamDisplayPosition.left;
+    opponentTeamStream.position = TeamDisplayPosition.right;
+
+    // Get the correct team contexts based on their fixed team IDs
+    TeamContext myTeamContext;
+    TeamContext opponentTeamContext;
+    
+    if (leftWorldController.teamContext.teamId == myTeamId) {
+      // Left world already has my team's context
+      myTeamContext = leftWorldController.teamContext;
+      opponentTeamContext = rightWorldController.teamContext;
     } else {
-      myTeamContext = leftWorldController!.teamContext;
-      opponentTeamContext = rightWorldController!.teamContext;
+      // Left world has opponent's context, right world has my team's context
+      myTeamContext = rightWorldController.teamContext;
+      opponentTeamContext = leftWorldController.teamContext;
     }
 
+    // Update team context properties and players
     myTeamContext.isPlayerTeam = true;
     myTeamContext.displayPosition = TeamDisplayPosition.left;
     myTeamContext.assign(myTeamPlayers);
@@ -379,12 +382,19 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     opponentTeamContext.assign(opponentTeamPlayers);
 
     appLog.info(
-      'Updated team contexts: Left=${myTeamContext.teamId} (${myTeamContext.players.length} players), Right=${opponentTeamContext.teamId} (${opponentTeamContext.players.length} players)',
+      'Updated team contexts: Left=Team${myTeamContext.teamId} (${myTeamContext.players.length} players), Right=Team${opponentTeamContext.teamId} (${opponentTeamContext.players.length} players)',
     );
 
+    // Set the contexts to the correct world controllers
     leftWorldController.setTeamContext(myTeamContext);
     rightWorldController.setTeamContext(opponentTeamContext);
+    
     initPlayerBitflags();
+    // force re-linking of overlays
+    if (overlays.isActive('inGameUI')) {
+      overlays.remove('inGameUI');
+      overlays.add('inGameUI');
+    }
   }
 
   /// Get player bitflags mapping by playerId (for action system)
@@ -924,6 +934,8 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       final teamId = worldController.teamContext.teamId;
       final world = worldController.world;
 
+      // print('COORDINATOR: Setting physics state for teamId=$teamId, worldPos=${world.pos}, ballY=${world.ball.position.y}');
+
       // Set team state by direct index assignment: Team 0 at [0], Team 1 at [1]
       _lastStateBuffer[teamId][0] = world.ball.position.x;
       _lastStateBuffer[teamId][1] = world.ball.position.y;
@@ -932,16 +944,16 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       _lastStateBuffer[teamId][4] = world.paddle.body.angle;
 
       // Player input bitflags (converted to float)
-      final teamStream = actionManager.getTeamStream(teamId);
-      final thrust = teamStream?.getCurrentThrust();
-      _lastStateBuffer[teamId][5] = (thrust?.leftBitflags ?? 0)
-          .toDouble(); // stateL
-      _lastStateBuffer[teamId][6] = (thrust?.rightBitflags ?? 0)
-          .toDouble(); // stateR
+      final teamStream = worldController.actionStream;
+      final thrust = teamStream.getCurrentThrust();
+      _lastStateBuffer[teamId][5] = (thrust.leftBitflags).toDouble(); // stateL
+      _lastStateBuffer[teamId][6] = (thrust.rightBitflags).toDouble(); // stateR
     }
 
     // Combine in guaranteed order: Team 0 first, Team 1 second
-    return _lastStateBuffer[0] + _lastStateBuffer[1];
+    final combined = _lastStateBuffer[0] + _lastStateBuffer[1];
+    // print('COORDINATOR: Broadcasting physics - Team0[ballY]=${_lastStateBuffer[0][1]}, Team1[ballY]=${_lastStateBuffer[1][1]}');
+    return combined;
   }
 
   /// Handle incoming physics state updates
@@ -994,7 +1006,9 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
         final ballX = latestState.state[stateOffset];
         final ballY = latestState.state[stateOffset + 1];
         world.ball.setPosition(Vector2(ballX, ballY));
-        //appLog.info('Set ball [NI] position to ($ballX, $ballY)');
+        // if (ballY != -0.05000000074505806) { // Only log when ball actually moves
+        //   print('PHYSICS DEBUG: Applied physics to teamId=$teamId, worldPos=${world.pos}, ballY=$ballY, stateOffset=$stateOffset, bufferLen=${latestState.state.length}');
+        // }
 
         // Apply ball rotation directly
         final ballRotation = latestState.state[stateOffset + 2];

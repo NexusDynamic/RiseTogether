@@ -515,9 +515,9 @@ class InGameUI extends StatelessWidget
     // Set the action in the controller (this will clear any other action for this player)
     controller.setPlayerAction(playerId, action);
     // TODO: Fix hack....
-    final actionTeamId = game.currentPlayerAssignment!.teamId;
+    // final actionTeamId = game.currentPlayerAssignment!.teamId;
     // Send the action to the game
-    _sendAction(actionTeamId, playerId, action);
+    _sendAction(teamId, playerId, action);
   }
 
   void _handleActionRelease(

@@ -79,6 +79,9 @@ class Paddle extends BodyComponent<RiseTogetherGame>
   double setThrust(double leftThrust, double rightThrust) {
     thrustLeft = leftThrust;
     thrustRight = rightThrust;
+    // if (leftThrust > 0 || rightThrust > 0) {
+    //   print('PADDLE DEBUG: setThrust called with left=$leftThrust, right=$rightThrust on world ${world.pos}');
+    // }
     return thrustLeft + thrustRight;
   }
 
