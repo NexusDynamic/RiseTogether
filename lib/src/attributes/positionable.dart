@@ -4,6 +4,8 @@ abstract mixin class PositionableBodyComponent {
   abstract Body body;
   bool _pendingPositionUpdate = false;
   bool _pendingAngleUpdate = false;
+  bool _kinematic = true;
+  bool get kinematic => _kinematic;
   final Vector2 _pendingPosition = Vector2.zero();
   double _pendingAngle = 0.0;
   bool get hasPendingPositionUpdate => _pendingPositionUpdate;
@@ -24,8 +26,17 @@ abstract mixin class PositionableBodyComponent {
   }
 
   void stopMovement() {
+    // noop if kinematic is false
     body.linearVelocity = Vector2.zero();
     body.angularVelocity = 0.0;
+  }
+
+  set kinematic(bool newStatus) {
+    if (_kinematic != newStatus) {
+      body.setType(newStatus ? BodyType.kinematic : BodyType.static);
+      _kinematic = newStatus;
+      // appLog.info('Kinematic status changed to: $_kinematic');
+    }
   }
 
   void cancelPendingPositionUpdate() {

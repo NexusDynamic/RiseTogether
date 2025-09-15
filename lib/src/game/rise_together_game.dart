@@ -257,6 +257,8 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     // set world controller authoritative flag
     for (final controller in worldControllers.values) {
       controller.shouldUpdateParallax = _isAuthoritativePhysics;
+      controller.world.ball.kinematic = _isAuthoritativePhysics;
+      controller.world.paddle.kinematic = _isAuthoritativePhysics;
     }
 
     // await _initializeActionSystem();
@@ -750,7 +752,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       _interpolatePhysicsState(dt);
 
       // Still process local input for prediction
-      _processLocalInputPrediction(dt);
+      // _processLocalInputPrediction(dt);
     } else {
       // Coordinator: update current bitflags for visual indicators
       _updateCurrentBitflags();
@@ -1167,29 +1169,29 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   }
 
   /// Process local input prediction for responsiveness on followers
-  void _processLocalInputPrediction(double dt) {
-    if (_isAuthoritativePhysics) return; // Only for followers
+  // void _processLocalInputPrediction(double dt) {
+  //   if (_isAuthoritativePhysics) return; // Only for followers
 
-    final currentAssignment = currentPlayerAssignment;
-    if (currentAssignment == null) return;
+  //   final currentAssignment = currentPlayerAssignment;
+  //   if (currentAssignment == null) return;
 
-    final teamId = currentAssignment.teamId;
+  //   final teamId = currentAssignment.teamId;
 
-    final teamStream = actionManager.getTeamStream(teamId);
+  //   final teamStream = actionManager.getTeamStream(teamId);
 
-    if (teamStream != null) {
-      // Get current thrust from local inputs
-      final thrust = teamStream.getCurrentThrust();
-      final world = worldControllers[teamStream.position]!.world;
+  //   if (teamStream != null) {
+  //     // Get current thrust from local inputs
+  //     final thrust = teamStream.getCurrentThrust();
+  //     final world = worldControllers[teamStream.position]!.world;
 
-      final totalThrust = thrust.leftThrust + thrust.rightThrust;
-      final predictedVelocity = Vector2(0, -totalThrust);
+  //     final totalThrust = thrust.leftThrust + thrust.rightThrust;
+  //     final predictedVelocity = Vector2(0, -totalThrust);
 
-      // Apply small prediction offset (much smaller than authoritative physics)
-      world.paddle.body.linearVelocity =
-          predictedVelocity * 0.1; // Reduced impact for prediction
-    }
-  }
+  //     // Apply small prediction offset (much smaller than authoritative physics)
+  //     world.paddle.body.linearVelocity =
+  //         predictedVelocity * 0.1; // Reduced impact for prediction
+  //   }
+  // }
 
   @override
   void onRemove() {

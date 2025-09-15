@@ -113,6 +113,10 @@ class Paddle extends BodyComponent<RiseTogetherGame>
       applyPendingTransforms();
       return;
     }
+    // Only update if kinematic, otherwise it is updated by direct transform
+    if (!kinematic) {
+      return;
+    }
     // If no thrust, stop movement
     if (thrustLeft == 0.0 && thrustRight == 0.0) {
       body.clearForces();
