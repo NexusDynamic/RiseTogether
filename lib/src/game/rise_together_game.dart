@@ -3,7 +3,6 @@ import 'package:flame/components.dart' hide Timer;
 import 'package:flame/flame.dart';
 import 'package:flame/game.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
-import 'package:flame/events.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/models/player_action.dart';
@@ -103,12 +102,7 @@ class TimeProvider extends ChangeNotifier with Resetable {
 }
 
 class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
-    with
-        KeyboardEvents,
-        SingleGameInstance,
-        AppLogging,
-        AppSettings,
-        Resetable {
+    with SingleGameInstance, AppLogging, AppSettings, Resetable {
   final int nTeams = 2;
   late final RouterComponent router;
   final TimeProvider timeProvider = TimeProvider();
