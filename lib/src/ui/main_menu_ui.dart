@@ -384,7 +384,19 @@ class MainMenuUI extends StatelessWidget
 
                 /// IP address display
                 FutureBuilder<String?>(
-                  future: info.getWifiIP(),
+                  future: () async {
+                    try {
+                      final ip = await info.getWifiIP();
+                      if (ip == null || ip.isEmpty) {
+                        appLog.warning('Failed to get WiFi IP address');
+                        return 'Unavailable';
+                      }
+                      return ip;
+                    } catch (e) {
+                      appLog.severe('Error getting WiFi IP address: $e');
+                      return 'Error';
+                    }
+                  }(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return Text(
