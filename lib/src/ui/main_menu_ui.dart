@@ -14,9 +14,21 @@ class MainMenuUI extends StatelessWidget
   final RiseTogetherGame game;
   final NetworkCoordinator networkCoordinator;
   final Future<void> Function() onStartGame;
-  final info = NetworkInfo();
+  late final NetworkInfo? info;
 
-  MainMenuUI(this.game, this.networkCoordinator, this.onStartGame, {super.key});
+  MainMenuUI(
+    this.game,
+    this.networkCoordinator,
+    this.onStartGame, {
+    super.key,
+  }) {
+    try {
+      info = NetworkInfo();
+    } catch (e) {
+      appLog.severe('Failed to initialize NetworkInfo: $e');
+      rethrow;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -385,8 +397,9 @@ class MainMenuUI extends StatelessWidget
                 /// IP address display
                 FutureBuilder<String?>(
                   future: () async {
+                    if (info == null) return 'Unavailable';
                     try {
-                      final ip = await info.getWifiIP();
+                      final ip = await info!.getWifiIP();
                       if (ip == null || ip.isEmpty) {
                         appLog.warning('Failed to get WiFi IP address');
                         return 'Unavailable';
