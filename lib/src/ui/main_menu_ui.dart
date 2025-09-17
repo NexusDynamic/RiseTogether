@@ -402,12 +402,12 @@ class MainMenuUI extends StatelessWidget
                       final ip = await info!.getWifiIP();
                       if (ip == null || ip.isEmpty) {
                         appLog.warning('Failed to get WiFi IP address');
-                        return 'Unavailable';
+                        Future<String>.error('Unavailable');
                       }
                       return ip;
                     } catch (e) {
                       appLog.severe('Error getting WiFi IP address: $e');
-                      return 'Error';
+                      return Future<String>.error('Error');
                     }
                   }(),
                   builder: (context, snapshot) {
@@ -421,7 +421,7 @@ class MainMenuUI extends StatelessWidget
                       );
                     } else if (snapshot.hasError) {
                       return Text(
-                        'IP: Error',
+                        'IP: ${snapshot.error}',
                         style: TextStyle(
                           color: Color.fromARGB(200, 255, 100, 100),
                           fontSize: 12,
