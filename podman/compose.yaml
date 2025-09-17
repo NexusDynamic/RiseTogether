@@ -15,7 +15,8 @@ services:
     #   - "16571-20000:16571-20000/udp"
     #   - "16571-20000:16571-20000/tcp"
     platform: linux/arm64/v8
-    command: -v run --release
+    # additional arguments to flutter run
+    command: --release
     cap_add:
       - NET_ADMIN
       - NET_RAW
