@@ -25,9 +25,9 @@ services:
     #   - net.ipv4.conf.all.mc_forwarding=1
     volumes:
       - /dev/net/tun:/dev/net/tun
-      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
-      - ./logs/app:/home/developer/.local/share/com.zeyus.rise_together/logs/app
-      - ./logs/data:/home/developer/.local/share/com.zeyus.rise_together/logs/data
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro
+      - /home/RiseTogether/logs/app:/home/developer/.local/share/com.zeyus.rise_together/logs/app:rw
+      - /home/RiseTogether/logs/data:/home/developer/.local/share/com.zeyus.rise_together/logs/data:rw
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
 # networks:
