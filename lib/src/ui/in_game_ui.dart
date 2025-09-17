@@ -314,7 +314,9 @@ class InGameUI extends StatelessWidget
     try {
       final currentAssignment = game.currentPlayerAssignment;
       if (currentAssignment == null) {
-        throw StateError('Current player assignment not found');
+        // In headless mode or when no assignment, default to team 0 for UI
+        appLog.finest('No player assignment - defaulting to team 0 for UI');
+        return 0;
       }
       return currentAssignment.teamId;
     } catch (e) {

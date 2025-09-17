@@ -1,0 +1,31 @@
+{
+  "autoStart": false,
+  "autoStartDelay": 10,
+  "httpApiPort": 8080,
+  "skipSurveys": false,
+  "autoProgressLevels": true,
+  "levelTransitionDelay": 3,
+  "gameSettings": {
+    "debug_mode": false,
+    "simulated_players": false,
+    "level_duration": 120.0,
+    "distance_multiplier": 100.0,
+    "tournament_rounds": 3,
+    "levels_per_round": 5,
+    "enable_surveys": true,
+    "local_only_mode": false
+  },
+  "physicsSettings": {
+    "gravity": 9.81,
+    "paddle_width_multiplier": 1.8,
+    "thrust_multiplier": 0.2,
+    "rotation_multiplier": 0.3
+  },
+  "teamAssignmentRules": [
+    {
+      "pattern": ".*",
+      "comment": "Match all players - will auto-balance between teams",
+      "teamId": -1
+    }
+  ]
+}

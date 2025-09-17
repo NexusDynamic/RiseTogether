@@ -1,0 +1,40 @@
+name: rise-together-headless
+services:
+  flutter:
+    privileged: true
+    working_dir: /home/developer/project
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    # networks:
+    #   frontend:
+    #     ipv4_address: 192.168.0.77
+    network_mode: "host"
+    # ports:
+    #   - "16571-20000:16571-20000/udp"
+    #   - "16571-20000:16571-20000/tcp"
+    platform: linux/arm64/v8
+    command: -v run --release
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    # sysctls:
+    #   - net.ipv4.ip_forward=1
+    #   - net.ipv4.conf.all.mc_forwarding=1
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
+      - ./logs/app:/home/developer/.local/share/com.zeyus.rise_together/logs/app
+      - ./logs/data:/home/developer/.local/share/com.zeyus.rise_together/logs/data
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+# networks:
+#   frontend:
+#     driver: macvlan
+#     driver_opts:
+#       parent: enp0s1  # Podman if
+#     ipam:
+#       config:
+#         - subnet: 192.168.0.0/24
+#           gateway: 192.168.0.1

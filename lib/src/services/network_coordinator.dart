@@ -106,6 +106,11 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     if (!_isInitialized) {
       throw StateError('NetworkCoordinator not initialized');
     }
+    // In headless mode, coordinator is not a player
+    if (isCoordinator && !_coordinatorIsPlayer) {
+      throw StateError('Coordinator is not a player in headless mode');
+    }
+
     final assignment = _playerAssignments[_deviceUId];
     if (assignment == null) {
       throw StateError('No player assignment for this device');
@@ -113,10 +118,31 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     return assignment;
   }
 
+  // Add safe getter that returns null instead of throwing
+  PlayerAssignment? get currentPlayerAssignmentOrNull {
+    if (!_isInitialized) return null;
+    if (isCoordinator && !_coordinatorIsPlayer) return null;
+    return _playerAssignments[_deviceUId];
+  }
+
   LSLCoordinationSession? get coordinationSession => _session;
   ActionStreamManager? get actionManager => _actionManager;
   Map<String, dynamic>? get gameConfiguration => _gameConfiguration;
   LSLDataStream? get physicsStateStream => _physDataStream;
+
+  /// flag to track if coordinator should be a player
+  bool _coordinatorIsPlayer = true;
+
+  // Setter for coordinator player status
+  set coordinatorAsPlayer(bool isPlayer) {
+    _coordinatorIsPlayer = isPlayer;
+    appLog.info('Coordinator player status set to: $_coordinatorIsPlayer');
+  }
+
+  bool get coordinatorIsPlayer => _coordinatorIsPlayer;
+
+  // Add callback for node joined events (for headless auto-assignment)
+  void Function(String nodeId, String nodeName)? _onNodeJoinedCallback;
 
   NetworkCoordinator(ActionStreamManager? actionManager)
     : _actionManager = actionManager ?? ActionStreamManager();
@@ -243,6 +269,8 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       _nodeJoinedSub = _session!.nodeJoined.listen((node) {
         appLog.info('Node joined: ${node.name} (${node.uId})');
         _handleNewPlayerJoining(node);
+        // Call headless callback if set
+        _onNodeJoinedCallback?.call(node.uId, node.name);
         notifyListeners();
       });
 
@@ -466,7 +494,10 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
       channels: 3, // teamId, actionIndex, playerIdHash
       sampleRate: 120.0,
       dataType: StreamDataType.int32,
-      participationMode: StreamParticipationMode.sendAllReceiveCoordinator,
+      // If headless, coordinator doesn't send
+      participationMode: coordinatorIsPlayer
+          ? StreamParticipationMode.sendAllReceiveCoordinator
+          : StreamParticipationMode.sendParticipantsReceiveCoordinator,
     );
     appLog.info('Creating game data stream...');
     _gameDataStream = await _session!.createDataStream(streamConfig);
@@ -713,6 +744,13 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   }
 
   void _setupDefaultAssignments() {
+    // In headless mode, coordinator is not a player
+    if (!_coordinatorIsPlayer) {
+      appLog.info(
+        'Headless coordinator mode - not creating player assignment for coordinator',
+      );
+      return;
+    }
     _playerAssignments[_deviceUId!] = PlayerAssignment(
       nodeId: _deviceId,
       nodeName: _deviceName!,
@@ -781,7 +819,7 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     if (!isCoordinator || _session == null) return;
 
     // Calculate team player counts
-    final teamCounts = <String, int>{};
+    final teamCounts = <String, int>{'0': 0, '1': 0};
     for (final assignment in _playerAssignments.values) {
       final teamKey = assignment.teamId.toString();
       teamCounts[teamKey] = (teamCounts[teamKey] ?? 0) + 1;
@@ -1059,7 +1097,24 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
 
   /// Check if we have enough players to start
   bool canStartGame() {
-    return _playerAssignments.isNotEmpty;
+    if (_coordinatorIsPlayer) {
+      return _playerAssignments.isNotEmpty;
+    } else {
+      // Headless mode - need at least 1 player on each team (excluding coordinator)
+      final team0Count = _playerAssignments.values
+          .where((a) => a.teamId == 0 && !a.isCoordinator)
+          .length;
+      final team1Count = _playerAssignments.values
+          .where((a) => a.teamId == 1 && !a.isCoordinator)
+          .length;
+
+      appLog.info(
+        'Headless: Team 0 has $team0Count players, Team 1 has $team1Count players',
+      );
+
+      // Need at least 1 player per team
+      return team0Count > 0 || team1Count > 0;
+    }
   }
 
   /// Get game configuration (legacy method - now uses new system)
@@ -1159,6 +1214,13 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     _statebroadcastTimer?.cancel();
     _statebroadcastTimer = null;
     appLog.info('Physics state broadcast stopped');
+  }
+
+  // Set callback for when nodes join
+  void setOnNodeJoinedCallback(
+    void Function(String nodeId, String nodeName) callback,
+  ) {
+    _onNodeJoinedCallback = callback;
   }
 
   @override

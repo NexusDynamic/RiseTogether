@@ -48,14 +48,7 @@ class DistanceTracker extends ChangeNotifier with AppLogging, Resetable {
     bool shouldNotify = false;
 
     if (positiveDistance > (_maxDistances[teamId] ?? 0.0)) {
-      final oldDistance = _maxDistances[teamId] ?? 0.0;
       _maxDistances[teamId] = positiveDistance;
-      if (positiveDistance > 90.0) {
-        // Log when we see the high distance issue
-        appLog.info(
-          'Team $teamId distance jump: currentHeight=$currentHeight, startHeight=$startHeight, relativeHeight=$relativeHeight, oldDistance=$oldDistance, newDistance=${positiveDistance.toStringAsFixed(1)}m',
-        );
-      }
       shouldNotify = true;
     }
 

@@ -81,9 +81,8 @@ class WorldController with AppLogging, Resetable {
 
     // Only update parallax if this controller should handle it (coordinator only)
     if (shouldUpdateParallax) {
-      // Use the corrected thrust values from TeamActionStream (which now uses configured team size)
+      // Use the corrected thrust values from TeamActionStream
       world.parallax.parallax!.baseVelocity.setFrom(Vector2(0, -totalThrust));
-      appLog.info('Updated paddle thrust: ${thrust.toString()}');
     }
   }
 

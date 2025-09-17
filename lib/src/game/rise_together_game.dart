@@ -4,6 +4,7 @@ import 'package:flame/flame.dart';
 import 'package:flame/game.dart';
 import 'package:flame_forge2d/flame_forge2d.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart' show Level;
 import 'package:rise_together/src/models/player_action.dart';
 import 'package:rise_together/src/services/log_service.dart';
@@ -22,6 +23,7 @@ import 'package:synchronized/synchronized.dart';
 import 'rise_together_world.dart';
 import 'dart:collection';
 import 'dart:async';
+import 'package:rise_together/src/services/headless_config_service.dart';
 
 /// Notifier for player input bitflag changes
 class BitflagsNotifier with ChangeNotifier {
@@ -166,6 +168,10 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
   final isGameOver = false;
 
   RiseTogetherLevel level;
+
+  // Add headless mode support
+  final HeadlessConfigService _headlessService = HeadlessConfigService.instance;
+  bool get isHeadlessMode => _headlessService.isHeadlessMode;
 
   RiseTogetherGame({this.level = const Level1(), required this.actionManager})
     : super(gravity: Vector2.zero(), zoom: 10) {
@@ -325,6 +331,11 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       appLog.warning('Attempted to send action but game not configured');
       return;
     }
+    // In headless mode, coordinator doesn't send actions as a player
+    if (_headlessService.isHeadlessMode && isCoordinator) {
+      appLog.finest('Headless coordinator - not sending player actions');
+      return;
+    }
     final teamId = _actionProvider!.currentPlayerAssignment.teamId;
     final playerId = _actionProvider!.currentPlayerAssignment.playerId;
     _actionProvider!.networkBridge.sendAction(teamId, playerId, action);
@@ -335,8 +346,16 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       isConfigured ? _actionProvider!.isCoordinator : false;
 
   /// Get current player's team assignment
-  PlayerAssignment? get currentPlayerAssignment =>
-      isConfigured ? _actionProvider!.currentPlayerAssignment : null;
+  PlayerAssignment? get currentPlayerAssignment {
+    if (!isConfigured) return null;
+
+    // In headless coordinator mode, there is no current player assignment
+    if (_headlessService.isHeadlessMode && isCoordinator) {
+      return null; // Coordinator is not a player in headless mode
+    }
+
+    return _actionProvider!.currentPlayerAssignment;
+  }
 
   /// Get all players sorted by team then alphabetically with their bitflag values
   /// Returns a list of maps with nodeId, teamId, playerId, and bitflagValue (2^index)
@@ -409,6 +428,72 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
   /// Update team contexts for all world controllers when assignments change
   void _updateTeamContexts() {
+    // In headless mode, coordinator is not a player
+    if (_headlessService.isHeadlessMode && isCoordinator) {
+      appLog.info(
+        'Headless coordinator mode - not assigning coordinator to any team',
+      );
+
+      // Just set up team contexts based on team IDs without coordinator participation
+      final teamAPlayers = _actionProvider!.playerAssignments
+          .where((p) => p.teamId == 0 && !p.isCoordinator)
+          .toList();
+      final teamBPlayers = _actionProvider!.playerAssignments
+          .where((p) => p.teamId == 1 && !p.isCoordinator)
+          .toList();
+
+      // Create team streams if they don't exist
+      TeamActionStream? teamAStream = actionManager.getTeamStream(0);
+      TeamActionStream? teamBStream = actionManager.getTeamStream(1);
+
+      if (teamAStream == null) {
+        teamAStream = actionManager.createTeamStream(
+          TeamDisplayPosition.left,
+          5,
+          getPlayerBitflags: _getPlayerBitflagsMap,
+        );
+        teamAStream.teamId = 0;
+      }
+
+      if (teamBStream == null) {
+        teamBStream = actionManager.createTeamStream(
+          TeamDisplayPosition.right,
+          5,
+          getPlayerBitflags: _getPlayerBitflagsMap,
+        );
+        teamBStream.teamId = 1;
+      }
+
+      // Set up contexts for visualization (left/right display positions)
+      final leftWorldController = worldControllers[TeamDisplayPosition.left]!;
+      final rightWorldController = worldControllers[TeamDisplayPosition.right]!;
+
+      final teamAContext = TeamContext(
+        teamId: 0,
+        displayPosition: TeamDisplayPosition.left,
+        isPlayerTeam: false, // Neither is "player" team in headless
+        players: teamAPlayers,
+        actionStream: teamAStream,
+      );
+
+      final teamBContext = TeamContext(
+        teamId: 1,
+        displayPosition: TeamDisplayPosition.right,
+        isPlayerTeam: false,
+        players: teamBPlayers,
+        actionStream: teamBStream,
+      );
+
+      leftWorldController.setTeamContext(teamAContext);
+      rightWorldController.setTeamContext(teamBContext);
+
+      appLog.info(
+        'Headless: Set team contexts - Team 0: ${teamAPlayers.length} players, Team 1: ${teamBPlayers.length} players',
+      );
+
+      initPlayerBitflags();
+      return;
+    }
     final myTeamId = _actionProvider!.currentPlayerAssignment.teamId;
     final opponentTeamId = myTeamId == 0 ? 1 : 0;
 
@@ -658,6 +743,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
   @override
   Future<void> onLoad() async {
+    await super.onLoad();
     appLog.setMinLevel(Level.INFO);
     appLog.fine('RiseTogetherGame onLoad called');
     // Ensure game settings store is loaded
@@ -687,10 +773,15 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
     await Flame.images.load('ball.png');
 
-    _setupWorld(TeamDisplayPosition.left);
-    _setupWorld(TeamDisplayPosition.right);
+    await _setupWorld(TeamDisplayPosition.left);
+    await _setupWorld(TeamDisplayPosition.right);
 
     appLog.fine('Game assets loaded, ready for configuration');
+
+    // Apply headless optimizations
+    if (isHeadlessMode) {
+      await configureHeadless();
+    }
   }
 
   Future<void> _setupWorld(TeamDisplayPosition pos) async {
@@ -727,6 +818,26 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
     // worldController.initialize();
     return worldController;
+  }
+
+  // Override render method to skip rendering in headless mode
+  @override
+  void render(Canvas canvas) {
+    if (isHeadlessMode && !kDebugMode) {
+      // Skip rendering in headless mode (unless debugging)
+      return;
+    }
+    super.render(canvas);
+  }
+
+  // Override renderTree to optimize rendering pipeline
+  @override
+  void renderTree(Canvas canvas) {
+    if (isHeadlessMode && !kDebugMode) {
+      // Skip entire render tree in headless mode
+      return;
+    }
+    super.renderTree(canvas);
   }
 
   @override
@@ -781,6 +892,12 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
       _actionProvider!.stopGameplay();
     }
 
+    // In headless mode, handle auto-progression
+    if (isHeadlessMode) {
+      _handleHeadlessLevelComplete();
+      return;
+    }
+
     // Remove in-game UI
     overlays.remove('inGameUI');
 
@@ -797,6 +914,55 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
     // Pause the engine
     _pauseEngine();
+  }
+
+  void _handleHeadlessLevelComplete() {
+    appLog.info('Headless: Level completed, handling auto-progression');
+
+    // Pause the engine temporarily
+    _pauseEngine();
+
+    // Check if tournament is complete
+    if (tournamentManager.isTournamentComplete) {
+      appLog.info('Headless: Tournament complete, resetting game');
+      // Reset the game after a delay
+      Future.delayed(Duration(seconds: 10), () {
+        resetGame();
+        // Optionally restart if configured
+        if (_headlessService.config.autoStart) {
+          _headlessService.scheduleAutoStart(
+            _actionProvider is NetworkActionProvider
+                ? (_actionProvider as NetworkActionProvider).networkCoordinator
+                : NetworkCoordinator(null),
+            () async {
+              await startGame();
+            },
+          );
+        }
+      });
+    } else {
+      // Schedule automatic level progression
+      _headlessService.scheduleLevelTransition(() async {
+        appLog.info('Headless: Auto-advancing to next level');
+        await advanceLevel();
+        await resumeGame();
+      });
+    }
+  }
+
+  Future<void> configureHeadless() async {
+    if (!isHeadlessMode) return;
+
+    appLog.info('Applying headless-specific game configuration');
+
+    // Disable UI-dependent features
+    for (final controller in worldControllers.values) {
+      // Disable parallax updates to save CPU
+      controller.shouldUpdateParallax = false;
+
+      // Set render body to false for all components
+      controller.world.bgLayer; // Skip background rendering
+    }
   }
 
   @override
@@ -1019,7 +1185,9 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
   /// Get current physics state for broadcasting (coordinator only)
   List<double>? _getCurrentPhysicsState() {
-    if (!_isAuthoritativePhysics || !isLoaded) return null;
+    if (!_isAuthoritativePhysics || !isGameRunning) {
+      return null; // Only provide state if coordinator and game is running
+    }
 
     // For each team: ballX, ballY, ballRotation, paddleY, paddleAngle, stateL, stateR
     for (final worldController in worldControllers.values) {
