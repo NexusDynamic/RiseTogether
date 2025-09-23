@@ -91,6 +91,15 @@ class HeadlessApiController with AppLogging {
         case '/level/advance':
           await _handleLevelAdvance(request);
           break;
+        case '/game/reset_complete':
+          await _handleResetComplete(request);
+          break;
+        case '/ready_status':
+          await _handleReadyStatus(request);
+          break;
+        case '/level/force_advance':
+          await _handleForceNextLevel(request);
+          break;
         default:
           _sendError(request, 'Unknown endpoint: $path', HttpStatus.notFound);
       }
@@ -238,6 +247,39 @@ class HeadlessApiController with AppLogging {
 
     await game.advanceLevel();
     _sendSuccess(request, 'Advanced to next level');
+  }
+
+  Future<void> _handleResetComplete(HttpRequest request) async {
+    if (request.method != 'POST') {
+      _sendError(request, 'Method not allowed', HttpStatus.methodNotAllowed);
+      return;
+    }
+
+    await game.resetGameComplete();
+    coordinator.resetGameState();
+    _sendSuccess(request, 'Game completely reset');
+  }
+
+  Future<void> _handleReadyStatus(HttpRequest request) async {
+    final status = {
+      'levelReadyNodes': coordinator.levelReadyNodes.toList(),
+      'allReady':
+          coordinator.levelReadyNodes.length ==
+          coordinator.connectedNodes.length,
+      'totalNodes': coordinator.connectedNodes.length,
+    };
+    _sendJson(request, status);
+  }
+
+  Future<void> _handleForceNextLevel(HttpRequest request) async {
+    if (request.method != 'POST') {
+      _sendError(request, 'Method not allowed', HttpStatus.methodNotAllowed);
+      return;
+    }
+
+    coordinator.resetLevelReadyState();
+    await game.advanceLevel();
+    _sendSuccess(request, 'Forced advance to next level');
   }
 
   Future<Map<String, dynamic>?> _readJsonBody(HttpRequest request) async {

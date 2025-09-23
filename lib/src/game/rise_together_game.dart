@@ -165,6 +165,7 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
 
   final ActionStreamManager actionManager;
 
+  // TODO: use or lose
   final isGameOver = false;
 
   RiseTogetherLevel level;
@@ -987,6 +988,63 @@ class RiseTogetherGame<T extends RiseTogetherWorld> extends Forge2DGame
     _pauseEngine();
 
     appLog.info('Game state reset complete');
+  }
+
+  Future<void> resetGameComplete() async {
+    appLog.info(
+      'Performing complete game reset while preserving network state',
+    );
+
+    // Store network state
+    // final wasGameActive = _gameRunning;
+    final actionProvider = _actionProvider;
+
+    // Stop physics broadcasting if active
+    if (_isAuthoritativePhysics && _actionProvider is NetworkActionProvider) {
+      final coordinator =
+          (_actionProvider as NetworkActionProvider).networkCoordinator;
+      coordinator.stopPhysicsStateBroadcast();
+    }
+
+    // // Reset game state
+    // _gameRunning = false;
+    // _gameStarting = false;
+    // _coordinatedStartInitiated = false;
+
+    // Reset all world controllers and components
+    for (final controller in worldControllers.values) {
+      controller.reset();
+      // Reset ball and paddle to initial positions
+      controller.world.ball.reset();
+      controller.world.paddle.reset();
+    }
+
+    // Reset game systems
+    timeProvider.reset();
+    tournamentManager.reset();
+    distanceTracker.reset();
+
+    // Clear bitflags
+    _bitflagsNotifier.clear();
+
+    // Clear action streams
+    for (final controller in worldControllers.values) {
+      controller.actionStream.clearAllActions();
+    }
+
+    // Reload settings
+    await _reloadSettings();
+
+    // If we have a network coordinator, reset ready state but preserve connections
+    if (actionProvider is NetworkActionProvider) {
+      final coordinator = actionProvider.networkCoordinator;
+      coordinator.resetGameState(); // New method we'll add
+    }
+
+    appLog.info('Game reset complete - network state preserved');
+
+    // Pause engine until new game starts
+    _pauseEngine();
   }
 
   Future<void> resumeGame() async {

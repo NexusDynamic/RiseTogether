@@ -56,6 +56,10 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
   Timer? _statebroadcastTimer;
   static const int physicsBroadcastRate = 120; // Hz
 
+  final Set<String> _levelReadyNodes = {};
+  Set<String> get levelReadyNodes => Set.unmodifiable(_levelReadyNodes);
+  VoidCallback? _onAllNodesReadyForNextLevel;
+
   // Throttling for change-based physics updates
   DateTime? _lastPhysicsUpdate;
   static const int minPhysicsUpdateIntervalMs = 8; // ~120 FPS max
@@ -482,7 +486,73 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
           notifyListeners();
         }
         break;
+      case 'game_reset':
+        if (!isCoordinator) {
+          appLog.info('Game reset by coordinator');
+          _gameActive = false;
+          _gameStarting = false;
+          _readyNodes.clear();
+          notifyListeners();
+        }
+        break;
+      case 'ready_for_next_level':
+        if (isCoordinator) {
+          final nodeId = message.payload['nodeId'] as String;
+          markNodeReadyForNextLevel(nodeId);
+        }
+        break;
+      case 'time_update':
+        if (!isCoordinator) {
+          final timeRemaining = message.payload['timeRemaining'] as double;
+          final timestampStr = message.payload['timestamp'] as String;
+          final timestamp = DateTime.parse(timestampStr);
+          // Get LSL time correction (in seconds)
+          final lslTimeCorrection =
+              message.payload['metadata']?['lsl_time_correction'] as double? ??
+              0.0;
+          appLog.info(
+            'Received time update: $timeRemaining seconds remaining (sent at $timestamp [LSL correction: $lslTimeCorrection])',
+          );
+          // TODO: link to game update if not coordinator -> parse and update
+          // time reamining notifier
+        }
+        break;
     }
+  }
+
+  DateTime? _lastTimeUpdate;
+  void broadcastTimeUpdate(double timeRemaining) {
+    if (!isCoordinator || !_gameActive) return;
+
+    // Throttle to once per second
+    final now = DateTime.now();
+    if (_lastTimeUpdate != null &&
+        now.difference(_lastTimeUpdate!).inMilliseconds < 1000) {
+      return;
+    }
+
+    _lastTimeUpdate = now;
+    _session?.sendUserMessage('time_update', 'Time remaining update', {
+      'timeRemaining': timeRemaining,
+      'timestamp': now.toIso8601String(),
+    });
+  }
+
+  void markNodeReadyForNextLevel(String nodeId) {
+    _levelReadyNodes.add(nodeId);
+    appLog.info(
+      'Node $nodeId ready for next level. ${_levelReadyNodes.length}/${connectedNodes.length} ready',
+    );
+
+    if (_levelReadyNodes.length == connectedNodes.length &&
+        _onAllNodesReadyForNextLevel != null) {
+      appLog.info('All nodes ready for next level!');
+      _onAllNodesReadyForNextLevel!();
+    }
+  }
+
+  void resetLevelReadyState() {
+    _levelReadyNodes.clear();
   }
 
   Future<void> _setupGameDataStream() async {
@@ -1214,6 +1284,29 @@ class NetworkCoordinator extends ChangeNotifier with AppLogging, AppSettings {
     _statebroadcastTimer?.cancel();
     _statebroadcastTimer = null;
     appLog.info('Physics state broadcast stopped');
+  }
+
+  void resetGameState() {
+    appLog.info('Resetting game state in NetworkCoordinator');
+
+    // Reset game state flags
+    _gameActive = false;
+    _gameStarting = false;
+    _coordinatedStartInitiated = false;
+    _readyNodes.clear();
+    _scheduledStartTime = null;
+
+    // Keep player assignments and connections intact
+    appLog.info(
+      'Network state preserved: ${_playerAssignments.length} assignments, ${connectedNodes.length} nodes',
+    );
+
+    // Notify participants of reset
+    if (isCoordinator && _session != null) {
+      _session!.sendUserMessage('game_reset', 'Game has been reset', {});
+    }
+
+    notifyListeners();
   }
 
   // Set callback for when nodes join
