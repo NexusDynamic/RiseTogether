@@ -30,12 +30,12 @@ services:
       - /home/RiseTogether/logs/data:/home/developer/.local/share/com.zeyus.rise_together/logs/data:rw
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
-# networks:
-#   frontend:
-#     driver: macvlan
-#     driver_opts:
-#       parent: enp0s1  # Podman if
-#     ipam:
-#       config:
-#         - subnet: 192.168.0.0/24
-#           gateway: 192.168.0.1
+networks:
+  frontend:
+    driver: macvlan
+    driver_opts:
+      parent: lima0  # Podman if
+    ipam:
+      config:
+        - subnet: 192.168.0.0/24
+          gateway: 192.168.0.1
